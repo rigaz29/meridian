@@ -88,6 +88,13 @@ Sets defined in `agent.js:6-7`. If you add a tool, also add it to the relevant s
 | positionSizePct | management | 0.35 |
 | minSolToOpen | management | 0.55 |
 | outOfRangeWaitMinutes | management | 30 |
+| trailingTakeProfit | management | true |
+| trailingTriggerPct | management | 3 |
+| trailingDropPct | management | 1.5 (base tolerance at trigger level) |
+| trailingDropScale | management | 0.2 (% wider per 1% peak above trigger; 0=disabled) |
+| trailingDropMax | management | 4.0 (hard cap on drop tolerance) |
+| trailingOorTighten | management | true (tighten to base when OOR) |
+| trailingRejectionCooldownSec | management | 60 |
 | managementIntervalMin | schedule | 10 |
 | screeningIntervalMin | schedule | 30 |
 | managementModel / screeningModel / generalModel | llm | openrouter/healer-alpha |

@@ -52,6 +52,10 @@
   "trailingTakeProfit": true,
   "trailingTriggerPct": 3,
   "trailingDropPct": 1.5,
+  "trailingDropScale": 0.2,
+  "trailingDropMax": 4.0,
+  "trailingOorTighten": true,
+  "trailingRejectionCooldownSec": 60,
   "pnlSanityMaxDiffPct": 5,
   "solMode": false,
 

@@ -111,7 +111,7 @@ function scheduleTrailingDropConfirmation(positionAddress) {
       const resolved = resolvePendingTrailingDrop(
         positionAddress,
         position?.pnl_pct ?? null,
-        config.management.trailingDropPct,
+        config.management,
         TRAILING_DROP_CONFIRM_TOLERANCE_PCT,
       );
       if (resolved?.confirmed) {
@@ -203,7 +203,7 @@ export async function runManagementCycle({ silent = false } = {}) {
       const exit = updatePnlAndCheckExits(p.position, p, config.management);
       if (exit) {
         if (exit.action === "TRAILING_TP" && exit.needs_confirmation) {
-          if (queueTrailingDropConfirmation(p.position, exit.peak_pnl_pct, exit.current_pnl_pct, config.management.trailingDropPct)) {
+          if (queueTrailingDropConfirmation(p.position, exit.peak_pnl_pct, exit.current_pnl_pct, exit.effective_drop_pct)) {
             scheduleTrailingDropConfirmation(p.position);
           }
           continue;
@@ -658,7 +658,7 @@ Summarize the current portfolio health, total fees earned, and performance of al
         const exit = updatePnlAndCheckExits(p.position, p, config.management);
         if (exit) {
           if (exit.action === "TRAILING_TP" && exit.needs_confirmation) {
-            if (queueTrailingDropConfirmation(p.position, exit.peak_pnl_pct, exit.current_pnl_pct, config.management.trailingDropPct)) {
+            if (queueTrailingDropConfirmation(p.position, exit.peak_pnl_pct, exit.current_pnl_pct, exit.effective_drop_pct)) {
               scheduleTrailingDropConfirmation(p.position);
             }
             continue;

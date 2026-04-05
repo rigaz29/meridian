@@ -17,7 +17,7 @@ const ALLOWED_USER_IDS = new Set(
 
 let chatId   = process.env.TELEGRAM_CHAT_ID || null;
 let _offset  = 0;
-let _polling = false;
+let _polling  = false;
 let _liveMessageDepth = 0;
 let _warnedMissingChatId = false;
 let _warnedMissingAllowedUsers = false;
@@ -91,6 +91,10 @@ async function postTelegram(method, body) {
     });
     if (!res.ok) {
       const err = await res.text();
+      // Suppress harmless "message is not modified" errors from editMessageText
+      if (method === "editMessageText" && err.includes("message is not modified")) {
+        return null;
+      }
       log("telegram_error", `${method} ${res.status}: ${err.slice(0, 200)}`);
       return null;
     }
@@ -211,6 +215,7 @@ export async function createLiveMessage(title, intro = "Starting...") {
     toolLines: [],
     footer: "",
     messageId: null,
+    lastSentText: null,
     flushTimer: null,
     flushPromise: null,
     flushRequested: false,
@@ -231,9 +236,13 @@ export async function createLiveMessage(title, intro = "Starting...") {
     if (!state.messageId) {
       const sent = await sendMessage(text);
       state.messageId = sent?.result?.message_id ?? null;
+      state.lastSentText = text;
       return;
     }
+    // Skip edit if text hasn't changed — avoids Telegram 400 "message is not modified"
+    if (text === state.lastSentText) return;
     await editMessage(text, state.messageId);
+    state.lastSentText = text;
   }
 
   function scheduleFlush(delay = 300) {
