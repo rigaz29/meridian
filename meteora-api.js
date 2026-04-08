@@ -303,7 +303,7 @@ export async function enrichPosition(position) {
  * Fetch and enrich last N closed positions from Meteora API.
  * "Learn from history" function — call at startup or on-demand.
  */
-export async function fetchAndEnrichClosedPositions(walletAddress, { limit = 10, delayMs = 200 } = {}) {
+export async function fetchAndEnrichClosedPositions(walletAddress, { limit = 25, delayMs = 200 } = {}) {
   log("meteora_api", `Fetching last ${limit} closed positions for ${walletAddress.slice(0, 8)}...`);
 
   const closedResp = await fetchClosedPositions(walletAddress, { limit });

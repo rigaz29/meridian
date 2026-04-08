@@ -352,7 +352,7 @@ export function evolveThresholds(perfData, config) {
 
 // ─── Bootstrap from On-Chain History ──────────────────────────
 
-export async function bootstrapFromHistory(walletAddress, { limit = 10, force = false } = {}) {
+export async function bootstrapFromHistory(walletAddress, { limit = 25, force = false } = {}) {
   log("bootstrap", `Starting bootstrap: fetching last ${limit} closed positions from Meteora...`);
   const enrichedPositions = await fetchAndEnrichClosedPositions(walletAddress, { limit });
   if (!enrichedPositions || enrichedPositions.length === 0) {
