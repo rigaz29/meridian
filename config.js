@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { log } from "./logger.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const USER_CONFIG_PATH = path.join(__dirname, "user-config.json");
@@ -157,5 +158,7 @@ export function reloadScreeningThresholds() {
     if (fresh.maxBundlePct      != null) s.maxBundlePct     = fresh.maxBundlePct;
     if (fresh.maxBotHoldersPct  != null) s.maxBotHoldersPct = fresh.maxBotHoldersPct;
     if (fresh.maxPriceVolatility != null) s.maxPriceVolatility = fresh.maxPriceVolatility;
-  } catch { /* ignore */ }
+  } catch (err) {
+    log("config_error", `Failed to reload screening thresholds: ${err.message}`);
+  }
 }

@@ -709,6 +709,7 @@ Summarize the current portfolio health, total fees earned, and performance of al
 // ═══════════════════════════════════════════
 async function shutdown(signal) {
   log("shutdown", `Received ${signal}. Shutting down...`);
+  stopCronJobs();
   stopPolling();
   const positions = await getMyPositions();
   log("shutdown", `Open positions at shutdown: ${positions.total_positions}`);

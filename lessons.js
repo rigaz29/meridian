@@ -78,6 +78,8 @@ export async function recordPerformance(perf) {
   }
 
   data.performance.push(entry);
+  // Rolling window — keep last 500 records to prevent unbounded file growth
+  if (data.performance.length > 500) data.performance = data.performance.slice(-500);
 
   const lesson = derivLesson(entry);
   if (lesson) { data.lessons.push(lesson); log("lessons", `New lesson: ${lesson.rule}`); }

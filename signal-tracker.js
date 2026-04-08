@@ -15,6 +15,14 @@ import { log } from "./logger.js";
 const _staged = new Map();
 const STAGE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
+// Periodic cleanup so stale entries don't accumulate if screening stops
+setInterval(() => {
+  const now = Date.now();
+  for (const [addr, data] of _staged) {
+    if (now - data.staged_at > STAGE_TTL_MS) _staged.delete(addr);
+  }
+}, 60_000);
+
 /**
  * Stage signals for a pool during screening.
  * Called after candidate data is loaded, before the LLM decides.

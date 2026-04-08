@@ -42,7 +42,9 @@ function load() {
 function save(state) {
   try {
     state.lastUpdated = new Date().toISOString();
-    fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
+    const tmp = STATE_FILE + ".tmp";
+    fs.writeFileSync(tmp, JSON.stringify(state, null, 2));
+    fs.renameSync(tmp, STATE_FILE);
   } catch (err) {
     log("state_error", `Failed to write state.json: ${err.message}`);
   }
@@ -147,6 +149,11 @@ export function minutesOutOfRange(position_address) {
   const pos = state.positions[position_address];
   if (!pos || !pos.out_of_range_since) return 0;
   const ms = Date.now() - new Date(pos.out_of_range_since).getTime();
+  if (ms < 0) {
+    log("state_error", `Negative OOR duration for ${position_address} — resetting to in-range`);
+    markInRange(position_address);
+    return 0;
+  }
   return Math.floor(ms / 60000);
 }
 

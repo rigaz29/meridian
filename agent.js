@@ -234,7 +234,13 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
               JSON.parse(tc.function.arguments);
             } catch {
               try {
-                tc.function.arguments = JSON.stringify(JSON.parse(jsonrepair(tc.function.arguments)));
+                const repaired = JSON.stringify(JSON.parse(jsonrepair(tc.function.arguments)));
+                if (repaired.length > 100_000) {
+                  tc.function.arguments = "{}";
+                  log("error", `Repaired JSON too large for ${tc.function.name} (${repaired.length} bytes) — cleared to {}`);
+                } else {
+                  tc.function.arguments = repaired;
+                }
                 log("warn", `Repaired malformed JSON args for ${tc.function.name}`);
               } catch {
                 tc.function.arguments = "{}";
