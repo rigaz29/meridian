@@ -79,8 +79,9 @@ export const config = {
 
   // ─── Strategy Mapping ───────────────────
   strategy: {
-    strategy:  u.strategy  ?? "bid_ask",
-    binsBelow: u.binsBelow ?? 69,
+    strategy:         u.strategy         ?? "bid_ask",
+    targetDownsidePct: u.targetDownsidePct ?? 0.35,  // cover X% price drop below active bin
+    targetUpsidePct:   u.targetUpsidePct   ?? 0.20,  // cover X% price rise above active bin (spot only)
   },
 
   // ─── Scheduling ─────────────────────────

@@ -191,7 +191,8 @@ const toolMap = {
       screeningModel: ["llm", "screeningModel"],
       generalModel: ["llm", "generalModel"],
       // strategy
-      binsBelow: ["strategy", "binsBelow"],
+      targetDownsidePct: ["strategy", "targetDownsidePct"],
+      targetUpsidePct:   ["strategy", "targetUpsidePct"],
     };
 
     const applied = {};

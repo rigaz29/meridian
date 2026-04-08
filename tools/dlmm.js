@@ -77,6 +77,20 @@ async function getPool(poolAddress) {
 
 setInterval(() => poolCache.clear(), 5 * 60 * 1000);
 
+// ─── Bin Range Calculator ──────────────────────────────────────
+/**
+ * Calculate bins needed to cover a target price move from the active bin.
+ *
+ * @param {number} binStep  Pool bin step (e.g. 100 = 1% per bin)
+ * @param {number} targetPct  Fraction of price to cover (e.g. 0.35 = 35%)
+ * @param {boolean} upside  true for upside coverage, false for downside
+ * @returns {number} Number of bins
+ */
+function calcBinsFromTarget(binStep, targetPct, upside = false) {
+  const ratio = upside ? (1 + targetPct) : (1 - targetPct);
+  return Math.ceil(Math.abs(Math.log(ratio)) / Math.log(1 + binStep / 10000));
+}
+
 // ─── Get Active Bin ────────────────────────────────────────────
 export async function getActiveBin({ pool_address }) {
   pool_address = normalizeMint(pool_address);
@@ -111,8 +125,17 @@ export async function deployPosition({
   pool_address = normalizeMint(pool_address);
   const activeStrategy = strategy || config.strategy.strategy;
 
-  const activeBinsBelow = bins_below ?? config.strategy.binsBelow;
-  const activeBinsAbove = bins_above ?? 0;
+  const targetDownside = config.strategy.targetDownsidePct ?? 0.35;
+  const targetUpside   = config.strategy.targetUpsidePct   ?? 0.20;
+
+  // Preliminary estimate using provided bin_step (used for DRY_RUN and wide-range check)
+  const estBinStep = bin_step ?? 100;
+  const activeBinsBelow = bins_below != null
+    ? bins_below
+    : calcBinsFromTarget(estBinStep, targetDownside);
+  const activeBinsAbove = bins_above != null
+    ? bins_above
+    : (activeStrategy === "spot" ? calcBinsFromTarget(estBinStep, targetUpside, true) : 0);
 
   if (isPoolOnCooldown(pool_address)) {
     log("deploy", `Pool ${pool_address.slice(0, 8)} is on cooldown — skipping`);
@@ -146,9 +169,18 @@ export async function deployPosition({
   }
   const activeBin = await pool.getActiveBin();
 
+  // Recalculate bins using actual pool bin_step (unless explicitly provided by caller)
+  const actualBinStep = pool.lbPair.binStep;
+  const finalBinsBelow = bins_below != null
+    ? bins_below
+    : calcBinsFromTarget(actualBinStep, targetDownside);
+  const finalBinsAbove = bins_above != null
+    ? bins_above
+    : (activeStrategy === "spot" ? calcBinsFromTarget(actualBinStep, targetUpside, true) : 0);
+
   // Range calculation
-  const minBinId = activeBin.binId - activeBinsBelow;
-  const maxBinId = activeBin.binId + activeBinsAbove;
+  const minBinId = activeBin.binId - finalBinsBelow;
+  const maxBinId = activeBin.binId + finalBinsAbove;
 
   const strategyMap = {
     spot: StrategyType.Spot,
@@ -176,7 +208,7 @@ export async function deployPosition({
     totalXLamports = new BN(Math.floor(finalAmountX * Math.pow(10, decimals)));
   }
 
-  const totalBins = activeBinsBelow + activeBinsAbove;
+  const totalBins = finalBinsBelow + finalBinsAbove;
   const isWideRange = totalBins > 69;
   const newPosition = Keypair.generate();
 
@@ -247,7 +279,7 @@ export async function deployPosition({
       pool: pool_address,
       pool_name,
       strategy: activeStrategy,
-      bin_range: { min: minBinId, max: maxBinId, bins_below: activeBinsBelow, bins_above: activeBinsAbove },
+      bin_range: { min: minBinId, max: maxBinId, bins_below: finalBinsBelow, bins_above: finalBinsAbove },
       bin_step,
       volatility,
       fee_tvl_ratio,
@@ -258,7 +290,6 @@ export async function deployPosition({
       initial_value_usd,
     });
 
-    const actualBinStep = pool.lbPair.binStep;
     const activePrice = parseFloat(activeBin.price);
     const minPrice = activePrice * Math.pow(1 + actualBinStep / 10000, minBinId - activeBin.binId);
     const maxPrice = activePrice * Math.pow(1 + actualBinStep / 10000, maxBinId - activeBin.binId);
