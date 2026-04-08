@@ -131,6 +131,25 @@ export async function studyTopLPers({ pool_address, limit = 4 }) {
   };
 }
 
+/**
+ * Fetch historical LP positions for a specific wallet from LPAgent API.
+ * Returns array of raw position objects, or null if API key not set / request fails.
+ */
+export async function fetchLPAgentHistoricalForWallet(walletAddress, { limit = 50 } = {}) {
+  if (!LPAGENT_KEYS.length) return null;
+  try {
+    const res = await fetch(
+      `${LPAGENT_API}/lp-positions/historical?owner=${walletAddress}&page=1&limit=${limit}`,
+      { headers: { "x-api-key": nextKey() } }
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.data || [];
+  } catch {
+    return null;
+  }
+}
+
 function avg(arr) {
   if (!arr.length) return null;
   return Math.round((arr.reduce((s, x) => s + x, 0) / arr.length) * 100) / 100;

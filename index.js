@@ -895,6 +895,17 @@ async function telegramHandler(msg) {
     return;
   }
 
+  const bootstrapMatch = text.match(/^\/bootstrap\s+([1-9A-HJ-NP-Za-km-z]{32,44})$/i);
+  if (bootstrapMatch) {
+    const walletAddr = bootstrapMatch[1].trim();
+    try {
+      await sendMessage(`Bootstrapping from wallet ${walletAddr.slice(0, 8)}...`);
+      const result = await bootstrapFromHistory(walletAddr, { limit: 25 });
+      await sendMessage(`Bootstrap complete:\n• Imported: ${result.imported}\n• Skipped: ${result.skipped} (already known)\n• Lessons generated: ${result.lessons_generated}`);
+    } catch (e) { await sendMessage(`Error: ${e.message}`).catch(() => {}); }
+    return;
+  }
+
   busy = true;
   let liveMessage = null;
   try {
