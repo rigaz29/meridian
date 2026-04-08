@@ -266,6 +266,184 @@ export async function getTopCandidates({ limit = 10 } = {}) {
 }
 
 /**
+ * Check whether a specific pool/coin passes all screening criteria.
+ * Returns a pass/fail verdict per criterion and an overall summary.
+ */
+export async function checkPoolEligibility({ pool_address, timeframe = "1h" }) {
+  if (!pool_address) return { error: "pool_address required" };
+
+  const s = config.screening;
+  const checks = [];
+  let pool = null;
+
+  // ── Fetch pool detail ──────────────────────────────────────────
+  try {
+    pool = await getPoolDetail({ pool_address, timeframe });
+  } catch (e) {
+    return { error: `Could not fetch pool: ${e.message}` };
+  }
+
+  const base = pool.token_x || {};
+  const baseMint = base.address;
+  const binStep = pool.dlmm_params?.bin_step ?? null;
+  const mcap = base.market_cap ?? null;
+  const holders = pool.base_token_holders ?? null;
+  const volume = pool.volume ?? null;
+  const tvl = pool.tvl ?? null;
+  const activeTvl = pool.active_tvl ?? null;
+  const fee = pool.fee ?? null;
+  const feeActiveTvlRatio = pool.fee_active_tvl_ratio > 0
+    ? pool.fee_active_tvl_ratio
+    : (activeTvl > 0 ? (fee / activeTvl) * 100 : 0);
+  const organicScore = Math.round(base.organic_score || 0);
+  const tokenAgeHours = base.created_at
+    ? Math.floor((Date.now() - base.created_at) / 3_600_000)
+    : null;
+  const dev = base.dev || null;
+
+  function check(name, pass, value, threshold, note) {
+    checks.push({ name, pass, value: value ?? "n/a", threshold: threshold ?? "n/a", note: note || null });
+  }
+
+  // ── Blacklist / blocklist ──────────────────────────────────────
+  const blacklisted = isBlacklisted(baseMint);
+  check("token_blacklist", !blacklisted, base.symbol, "not blacklisted",
+    blacklisted ? "Token is on permanent blacklist" : null);
+
+  const devBlocked = dev ? isDevBlocked(dev) : false;
+  check("dev_blocklist", !devBlocked, dev ? dev.slice(0, 8) : "unknown", "not blocked",
+    devBlocked ? "Deployer wallet is on blocklist" : null);
+
+  // ── Cooldown ───────────────────────────────────────────────────
+  const poolCooldown = isPoolOnCooldown(pool_address);
+  check("pool_cooldown", !poolCooldown, pool_address.slice(0, 8), "not on cooldown",
+    poolCooldown ? "Pool is on cooldown (recent OOR streak or low yield close)" : null);
+
+  const mintCooldown = baseMint ? isBaseMintOnCooldown(baseMint) : false;
+  check("token_cooldown", !mintCooldown, base.symbol, "not on cooldown",
+    mintCooldown ? "Token is on cooldown across pools" : null);
+
+  // ── API hard filters ───────────────────────────────────────────
+  check("pool_type", pool.pool_type === "dlmm", pool.pool_type, "dlmm");
+
+  check("bin_step", binStep != null && binStep >= s.minBinStep && binStep <= s.maxBinStep,
+    binStep, `${s.minBinStep}–${s.maxBinStep}`);
+
+  check("mcap", mcap != null && mcap >= s.minMcap && mcap <= s.maxMcap,
+    mcap ? `$${Math.round(mcap / 1000)}k` : null, `$${s.minMcap / 1000}k–$${s.maxMcap / 1000000}M`);
+
+  check("holders", holders != null && holders >= s.minHolders,
+    holders, `≥${s.minHolders}`);
+
+  check("volume", volume != null && volume >= s.minVolume,
+    volume ? `$${Math.round(volume)}` : null, `≥$${s.minVolume}`);
+
+  check("tvl", tvl != null && tvl >= s.minTvl && tvl <= s.maxTvl,
+    tvl ? `$${Math.round(tvl)}` : null, `$${s.minTvl / 1000}k–$${s.maxTvl / 1000}k`);
+
+  check("fee_active_tvl_ratio", feeActiveTvlRatio >= s.minFeeActiveTvlRatio,
+    feeActiveTvlRatio.toFixed(4), `≥${s.minFeeActiveTvlRatio}`);
+
+  check("organic_score", organicScore >= s.minOrganic,
+    organicScore, `≥${s.minOrganic}`);
+
+  if (s.minTokenAgeHours != null) {
+    check("token_age_min", tokenAgeHours != null && tokenAgeHours >= s.minTokenAgeHours,
+      tokenAgeHours != null ? `${tokenAgeHours}h` : null, `≥${s.minTokenAgeHours}h`);
+  }
+  if (s.maxTokenAgeHours != null) {
+    check("token_age_max", tokenAgeHours != null && tokenAgeHours <= s.maxTokenAgeHours,
+      tokenAgeHours != null ? `${tokenAgeHours}h` : null, `≤${s.maxTokenAgeHours}h`);
+  }
+
+  const criticalWarnings = base.warnings?.length > 0;
+  check("no_critical_warnings", !criticalWarnings,
+    criticalWarnings ? `${base.warnings.length} warning(s)` : "none", "0 warnings");
+
+  // ── OKX enrichment ────────────────────────────────────────────
+  let okxSummary = null;
+  if (baseMint) {
+    try {
+      const { getAdvancedInfo, getPriceInfo, getRiskFlags } = await import("./okx.js");
+      const [adv, price, risk] = await Promise.allSettled([
+        getAdvancedInfo(baseMint),
+        getPriceInfo(baseMint),
+        getRiskFlags(baseMint),
+      ]);
+
+      if (risk.status === "fulfilled" && risk.value) {
+        check("wash_trading", !risk.value.is_wash, risk.value.is_wash ? "flagged" : "clean", "not flagged");
+        check("rugpull_flag", !risk.value.is_rugpull, risk.value.is_rugpull ? "flagged" : "clean", "not flagged",
+          risk.value.is_rugpull ? "OKX flagged as rugpull — skip unless strong smart wallet signal" : null);
+      }
+
+      const athFilter = s.athFilterPct;
+      if (price.status === "fulfilled" && price.value) {
+        const priceVsAth = price.value.price_vs_ath_pct;
+        if (athFilter != null) {
+          const threshold = 100 + athFilter;
+          check("ath_filter", priceVsAth == null || priceVsAth <= threshold,
+            priceVsAth != null ? `${priceVsAth}%` : "n/a", `≤${threshold}% of ATH`);
+        }
+        okxSummary = {
+          ...(okxSummary || {}),
+          price_vs_ath_pct: price.value.price_vs_ath_pct,
+          ath: price.value.ath,
+        };
+      }
+
+      if (adv.status === "fulfilled" && adv.value) {
+        const a = adv.value;
+        okxSummary = {
+          ...(okxSummary || {}),
+          risk_level: a.risk_level,
+          bundle_pct: a.bundle_pct,
+          sniper_pct: a.sniper_pct,
+          suspicious_pct: a.suspicious_pct,
+          smart_money_buy: a.smart_money_buy,
+          dev_sold_all: a.dev_sold_all,
+          dex_boost: a.dex_boost,
+        };
+
+        // Soft checks (advisory, not hard fails)
+        check("bundle_pct_advisory", a.bundle_pct == null || a.bundle_pct < 50,
+          a.bundle_pct != null ? `${a.bundle_pct}%` : "n/a", "<50% (advisory)",
+          a.bundle_pct >= 50 ? "High bundle % — LLM should weigh this negatively" : null);
+      }
+    } catch (e) {
+      log("screening", `checkPoolEligibility: OKX enrichment failed: ${e.message}`);
+    }
+  }
+
+  // ── Overall verdict ────────────────────────────────────────────
+  const hardFails = checks.filter((c) => !c.pass);
+  const passed = hardFails.length === 0;
+
+  // Build human-readable summary
+  const passLines = checks.filter((c) => c.pass).map((c) => `✓ ${c.name}: ${c.value}`);
+  const failLines = hardFails.map((c) => `✗ ${c.name}: ${c.value} (need ${c.threshold})${c.note ? " — " + c.note : ""}`);
+
+  return {
+    pool: pool_address,
+    name: pool.name || `${base.symbol}-${pool.token_y?.symbol}`,
+    base_symbol: base.symbol,
+    base_mint: baseMint,
+    passed,
+    hard_fails: hardFails.length,
+    summary: passed
+      ? `PASS — ${base.symbol} meets all ${checks.length} screening criteria.`
+      : `FAIL — ${base.symbol} fails ${hardFails.length}/${checks.length} criteria: ${hardFails.map((c) => c.name).join(", ")}.`,
+    checks,
+    pass_list: passLines,
+    fail_list: failLines,
+    okx: okxSummary,
+    note: passed
+      ? "This pool passed hard filters. LLM still needs to evaluate narrative, smart wallets, and fees_sol before deploying."
+      : null,
+  };
+}
+
+/**
  * Get full raw details for a specific pool.
  * Fetches top 50 pools from discovery API and finds the matching address.
  * Returns the full unfiltered API object (all fields, not condensed).

@@ -68,6 +68,33 @@ Use this instead of discover_pools for screening cycles.`,
   {
     type: "function",
     function: {
+      name: "check_pool_eligibility",
+      description: `Check whether a specific DLMM pool passes all Meridian screening criteria.
+Returns a pass/fail verdict for each criterion (blacklist, cooldown, mcap, holders, volume, TVL, bin_step, fee/TVL ratio, organic score, OKX risk flags, ATH filter) plus an overall PASS/FAIL summary.
+
+Use this when the user wants to evaluate a specific pool or coin before deploying, or to understand why a pool would be rejected by the screener.
+Returns: passed (bool), summary (string), pass_list, fail_list, and OKX enrichment data.`,
+      parameters: {
+        type: "object",
+        properties: {
+          pool_address: {
+            type: "string",
+            description: "The on-chain DLMM pool address (base58 public key)"
+          },
+          timeframe: {
+            type: "string",
+            enum: ["5m", "15m", "30m", "1h", "2h", "4h", "12h", "24h"],
+            description: "Metric timeframe for pool data. Default 1h for screening context."
+          }
+        },
+        required: ["pool_address"]
+      }
+    }
+  },
+
+  {
+    type: "function",
+    function: {
       name: "get_pool_detail",
       description: `Get detailed info for a specific DLMM pool by address.
 Use this during management to check current pool health (volume, fees, organic score, price trend).
