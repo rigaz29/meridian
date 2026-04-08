@@ -922,6 +922,30 @@ Returns individual closed positions with PnL, fees, strategy, hold time, and clo
     }
   },
 
+  // ─── Bootstrap from On-Chain History ───────────────────────────
+
+  {
+    type: "function",
+    function: {
+      name: "bootstrap_history",
+      description: `Import historical closed positions from Meteora on-chain API and generate lessons from them.
+Use when the bot has no performance history yet, or when the user wants to learn from their past positions.
+Each imported position is enriched with OHLCV price data, volume trends, and pool context.
+Deduplicates automatically — safe to call multiple times.
+
+Takes ~30 API calls for 10 positions (within 30 RPS rate limit).`,
+      parameters: {
+        type: "object",
+        properties: {
+          limit: {
+            type: "number",
+            description: "How many recent closed positions to import (default 10, max 20)"
+          }
+        }
+      }
+    }
+  },
+
   // ─── Pool Memory ────────────────────────────────────────────────
 
   {

@@ -11,7 +11,7 @@ import {
 } from "./dlmm.js";
 import { getWalletBalances, swapToken } from "./wallet.js";
 import { studyTopLPers } from "./study.js";
-import { addLesson, clearAllLessons, clearPerformance, removeLessonsByKeyword, getPerformanceHistory, pinLesson, unpinLesson, listLessons } from "../lessons.js";
+import { addLesson, clearAllLessons, clearPerformance, removeLessonsByKeyword, getPerformanceHistory, pinLesson, unpinLesson, listLessons, bootstrapFromHistory } from "../lessons.js";
 import { setPositionInstruction } from "../state.js";
 
 import { getPoolMemory, addPoolNote } from "../pool-memory.js";
@@ -124,6 +124,18 @@ const toolMap = {
       return { cleared: n, mode: "keyword", keyword };
     }
     return { error: "invalid mode" };
+  },
+  bootstrap_history: async ({ limit }) => {
+    try {
+      const { Keypair } = await import("@solana/web3.js");
+      const bs58 = await import("bs58");
+      const wallet = Keypair.fromSecretKey(bs58.default.decode(process.env.WALLET_PRIVATE_KEY));
+      const walletAddress = wallet.publicKey.toString();
+      const result = await bootstrapFromHistory(walletAddress, { limit: limit || 10 });
+      return result;
+    } catch (err) {
+      return { error: err.message };
+    }
   },
   update_config: ({ changes, reason = "" }) => {
     // Flat key → config section mapping (covers everything in config.js)

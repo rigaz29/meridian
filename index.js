@@ -7,7 +7,7 @@ import { getMyPositions, closePosition, getActiveBin } from "./tools/dlmm.js";
 import { getWalletBalances } from "./tools/wallet.js";
 import { getTopCandidates } from "./tools/screening.js";
 import { config, reloadScreeningThresholds, computeDeployAmount } from "./config.js";
-import { evolveThresholds, getPerformanceSummary } from "./lessons.js";
+import { evolveThresholds, getPerformanceSummary, bootstrapFromHistory } from "./lessons.js";
 import { registerCronRestarter } from "./tools/executor.js";
 import { startPolling, stopPolling, sendMessage, sendHTML, notifyOutOfRange, isEnabled as telegramEnabled, createLiveMessage } from "./telegram.js";
 import { generateBriefing } from "./briefing.js";
@@ -973,6 +973,7 @@ Commands:
   /learn <addr>  Study top LPers from a specific pool address
   /thresholds    Show current screening thresholds + performance stats
   /evolve        Manually trigger threshold evolution from performance data
+  /bootstrap     Import last 10 closed positions from Meteora API and learn from them
   /stop          Shut down
 `);
 
@@ -1154,6 +1155,40 @@ Focus on: hold duration, entry/exit timing, what win rates look like, whether sc
             console.log(`  ${key}: ${result.rationale[key]}`);
           }
           console.log("\nSaved to user-config.json. Applied immediately.\n");
+        }
+      });
+      return;
+    }
+
+    if (input.startsWith("/bootstrap")) {
+      await runBusy(async () => {
+        const parts = input.split(" ");
+        const limitArg = parseInt(parts[1]) || 10;
+        try {
+          const { Keypair } = await import("@solana/web3.js");
+          const bs58 = await import("bs58");
+          const wallet = Keypair.fromSecretKey(bs58.default.decode(process.env.WALLET_PRIVATE_KEY));
+          const walletAddress = wallet.publicKey.toString();
+
+          console.log(`\nBootstrapping from Meteora API: importing last ${limitArg} closed positions for ${walletAddress.slice(0, 8)}...\n`);
+
+          const result = await bootstrapFromHistory(walletAddress, { limit: limitArg });
+
+          console.log(`\nBootstrap complete:`);
+          console.log(`  Imported:  ${result.imported} positions`);
+          console.log(`  Skipped:   ${result.skipped} (already in lessons.json)`);
+          console.log(`  Lessons:   ${result.lessons_generated} new lessons generated\n`);
+
+          if (result.imported > 0) {
+            const perf = getPerformanceSummary();
+            if (perf) {
+              console.log(`  Total positions: ${perf.total_positions_closed}`);
+              console.log(`  Total PnL: $${perf.total_pnl_usd}  |  Win rate: ${perf.win_rate_pct}%`);
+              console.log(`  Enriched: ${perf.enriched_count}  |  Bootstrapped: ${perf.bootstrapped_count}\n`);
+            }
+          }
+        } catch (err) {
+          console.log(`\nBootstrap failed: ${err.message}\n`);
         }
       });
       return;
