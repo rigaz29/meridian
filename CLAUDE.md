@@ -96,6 +96,42 @@ Sets defined in `agent.js:6-7`. If you add a tool, also add it to the relevant s
 
 ---
 
+## Trailing TP vs Static TP
+
+Two exit mechanisms coexist in `index.js`:
+
+| Mechanism | Config Key | Default | Fires when... |
+|-----------|-----------|---------|---------------|
+| Static TP | `takeProfitFeePct` | 5% | PnL rises to X% |
+| Trailing TP | `trailingTriggerPct` / `trailingDropPct` | 3% / 1.5% | PnL drops Y% from confirmed peak |
+
+**Rule**: Once `trailing_active = true` (peak PnL ≥ `trailingTriggerPct`), **static TP is suppressed** — Rule 2 in management cycle checks `!tracked?.trailing_active` before firing. Trailing handles all exits from that point.
+
+**Interaction examples:**
+
+```
+trailingTriggerPct=3%, trailingDropPct=1.5%, takeProfitFeePct=15%
+
+Token pump cepat:  0% → 3% (trailing aktif) → 8% → 6.5% (drop 1.5%) → EXIT via trailing
+Token pump lambat: 0% → 2% → 2% → OOR → keluar via Rule 4 (trailing tidak pernah aktif)
+Token pump parabolic: 0% → 3% → 15% EXIT via static TP ceiling (sebelum sempat drop)
+```
+
+**Rekomendasi config:**
+- Token volatile/meme: set `takeProfitFeePct` tinggi (12–20%) sebagai emergency ceiling, andalkan trailing
+- Token stabil/fee-heavy: set `trailingTakeProfit: false`, andalkan static TP saja
+- Jangan set `takeProfitFeePct` < `trailingTriggerPct` — static TP akan fire sebelum trailing sempat aktif
+
+**Trailing TP execution flow** (bypass LLM):
+```
+Drop dikonfirmasi → closePosition() langsung (tidak lewat LLM)
+                  → gagal? fallback ke runManagementCycle()
+```
+Confirmed exit window: 120s (state.js `confirmed_trailing_exit_until`).
+Drop confirmation tolerance: 0.3% (index.js `TRAILING_DROP_CONFIRM_TOLERANCE_PCT`).
+
+---
+
 ## Position Lifecycle
 
 1. **Deploy**: `deploy_position` → executor safety checks → `trackPosition()` in state.js → Telegram notify

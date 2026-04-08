@@ -64,7 +64,7 @@ const _trailingDropConfirmTimers = new Map();
 const TRAILING_PEAK_CONFIRM_DELAY_MS = 15_000;
 const TRAILING_PEAK_CONFIRM_TOLERANCE = 0.85;
 const TRAILING_DROP_CONFIRM_DELAY_MS = 15_000;
-const TRAILING_DROP_CONFIRM_TOLERANCE_PCT = 1.0;
+const TRAILING_DROP_CONFIRM_TOLERANCE_PCT = 0.3;
 
 /** Strip <think>...</think> reasoning blocks that some models leak into output */
 function stripThink(text) {
@@ -115,8 +115,14 @@ function scheduleTrailingDropConfirmation(positionAddress) {
         TRAILING_DROP_CONFIRM_TOLERANCE_PCT,
       );
       if (resolved?.confirmed) {
-        log("state", `[Trailing recheck] Confirmed trailing exit for ${positionAddress} — triggering management`);
-        runManagementCycle({ silent: true }).catch((e) => log("cron_error", `Trailing recheck management failed: ${e.message}`));
+        log("state", `[Trailing recheck] Confirmed trailing exit for ${positionAddress} — closing directly`);
+        try {
+          await closePosition({ position_address: positionAddress, reason: resolved.reason });
+          log("state", `[Trailing TP] Direct close succeeded for ${positionAddress}`);
+        } catch (closeErr) {
+          log("cron_error", `[Trailing TP] Direct close failed for ${positionAddress}: ${closeErr.message} — falling back to management cycle`);
+          runManagementCycle({ silent: true }).catch((e) => log("cron_error", `Trailing recheck management failed: ${e.message}`));
+        }
       }
     } catch (error) {
       log("state_warn", `Trailing drop confirmation failed for ${positionAddress}: ${error.message}`);
@@ -247,8 +253,8 @@ export async function runManagementCycle({ silent = false } = {}) {
         actionMap.set(p.position, { action: "CLOSE", rule: 1, reason: "stop loss" });
         continue;
       }
-      // Rule 2: take profit
-      if (!pnlSuspect && p.pnl_pct != null && p.pnl_pct >= config.management.takeProfitFeePct) {
+      // Rule 2: take profit (skip if trailing TP is active — trailing handles the exit)
+      if (!pnlSuspect && !tracked?.trailing_active && p.pnl_pct != null && p.pnl_pct >= config.management.takeProfitFeePct) {
         actionMap.set(p.position, { action: "CLOSE", rule: 2, reason: "take profit" });
         continue;
       }
