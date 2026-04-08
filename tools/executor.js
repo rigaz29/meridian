@@ -131,7 +131,7 @@ const toolMap = {
       const bs58 = await import("bs58");
       const wallet = Keypair.fromSecretKey(bs58.default.decode(process.env.WALLET_PRIVATE_KEY));
       const walletAddress = wallet.publicKey.toString();
-      const result = await bootstrapFromHistory(walletAddress, { limit: limit || 10 });
+      const result = await bootstrapFromHistory(walletAddress, { limit: limit || 25 });
       return result;
     } catch (err) {
       return { error: err.message };
