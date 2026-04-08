@@ -106,6 +106,10 @@ export function trackPosition({
     confirmed_trailing_exit_reason: null,
     confirmed_trailing_exit_until: null,
     trailing_active: false,
+    pending_sl_pnl_pct: null,
+    pending_sl_started_at: null,
+    confirmed_sl_exit_reason: null,
+    confirmed_sl_exit_until: null,
   };
   pushEvent(state, { action: "deploy", position, pool_name: pool_name || pool });
   save(state);
@@ -378,6 +382,52 @@ export function getStateSummary() {
   };
 }
 
+export function queueStopLossConfirmation(position_address, currentPnlPct) {
+  if (currentPnlPct == null) return false;
+  const state = load();
+  const pos = state.positions[position_address];
+  if (!pos || pos.closed) return false;
+
+  const changed =
+    pos.pending_sl_pnl_pct == null ||
+    currentPnlPct < pos.pending_sl_pnl_pct;
+
+  if (!changed) return false;
+
+  pos.pending_sl_pnl_pct = currentPnlPct;
+  pos.pending_sl_started_at = new Date().toISOString();
+  save(state);
+  log("state", `Position ${position_address} stop loss candidate queued at ${currentPnlPct.toFixed(2)}%`);
+  return true;
+}
+
+export function resolvePendingStopLoss(position_address, currentPnlPct, stopLossPct, tolerancePct = 0.5) {
+  const state = load();
+  const pos = state.positions[position_address];
+  if (!pos || pos.closed || pos.pending_sl_pnl_pct == null) {
+    return { confirmed: false, pending: false };
+  }
+
+  const pendingPnl = pos.pending_sl_pnl_pct;
+  pos.pending_sl_pnl_pct = null;
+  pos.pending_sl_started_at = null;
+
+  const stillBelowSL = currentPnlPct != null && currentPnlPct <= stopLossPct + tolerancePct;
+
+  if (stillBelowSL) {
+    const reason = `Stop loss: PnL ${currentPnlPct.toFixed(2)}% <= ${stopLossPct}% (confirmed after recheck)`;
+    pos.confirmed_sl_exit_reason = reason;
+    pos.confirmed_sl_exit_until = new Date(Date.now() + 120_000).toISOString();
+    save(state);
+    log("state", `Position ${position_address} stop loss confirmed after recheck: pending ${pendingPnl.toFixed(2)}%, current ${currentPnlPct.toFixed(2)}%`);
+    return { confirmed: true, reason };
+  }
+
+  save(state);
+  log("state", `Position ${position_address} rejected stop loss after 15s recheck (pending: ${pendingPnl.toFixed(2)}%, current: ${currentPnlPct ?? "?"}%)`);
+  return { confirmed: false, rejected: true };
+}
+
 /**
  * Check all exit conditions for a position (trailing TP, stop loss, OOR, low yield).
  * Updates peak_pnl_pct, trailing_active, and OOR state.
@@ -404,6 +454,18 @@ export function updatePnlAndCheckExits(position_address, positionData, mgmtConfi
     pos.confirmed_trailing_exit_until = null;
   }
 
+  if (pos.confirmed_sl_exit_until) {
+    if (new Date(pos.confirmed_sl_exit_until).getTime() > Date.now() && pos.confirmed_sl_exit_reason) {
+      const reason = pos.confirmed_sl_exit_reason;
+      pos.confirmed_sl_exit_reason = null;
+      pos.confirmed_sl_exit_until = null;
+      save(state);
+      return { action: "STOP_LOSS", reason, confirmed_recheck: true };
+    }
+    pos.confirmed_sl_exit_reason = null;
+    pos.confirmed_sl_exit_until = null;
+  }
+
   let changed = false;
 
   // Activate trailing TP once trigger threshold is reached
@@ -428,10 +490,18 @@ export function updatePnlAndCheckExits(position_address, positionData, mgmtConfi
 
   // ── Stop loss ──────────────────────────────────────────────────
   if (!pnl_pct_suspicious && currentPnlPct != null && mgmtConfig.stopLossPct != null && currentPnlPct <= mgmtConfig.stopLossPct) {
-    return {
-      action: "STOP_LOSS",
-      reason: `Stop loss: PnL ${currentPnlPct.toFixed(2)}% <= ${mgmtConfig.stopLossPct}%`,
-    };
+    const minAgeForSL = mgmtConfig.minAgeBeforeSL ?? 15;
+    const ageMinutes = positionData.age_minutes;
+    if (ageMinutes != null && ageMinutes < minAgeForSL) {
+      log("state", `Position ${position_address} SL skipped — too new (${ageMinutes}m < ${minAgeForSL}m min age)`);
+    } else {
+      return {
+        action: "STOP_LOSS",
+        reason: `Stop loss: PnL ${currentPnlPct.toFixed(2)}% <= ${mgmtConfig.stopLossPct}%`,
+        needs_confirmation: true,
+        current_pnl_pct: currentPnlPct,
+      };
+    }
   }
 
   // ── Trailing TP ────────────────────────────────────────────────

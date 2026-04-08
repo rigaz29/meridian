@@ -11,7 +11,7 @@ import { evolveThresholds, getPerformanceSummary, bootstrapFromHistory } from ".
 import { registerCronRestarter } from "./tools/executor.js";
 import { startPolling, stopPolling, sendMessage, sendHTML, notifyOutOfRange, isEnabled as telegramEnabled, createLiveMessage } from "./telegram.js";
 import { generateBriefing } from "./briefing.js";
-import { getLastBriefingDate, setLastBriefingDate, getTrackedPosition, setPositionInstruction, updatePnlAndCheckExits, queuePeakConfirmation, resolvePendingPeak, queueTrailingDropConfirmation, resolvePendingTrailingDrop } from "./state.js";
+import { getLastBriefingDate, setLastBriefingDate, getTrackedPosition, setPositionInstruction, updatePnlAndCheckExits, queuePeakConfirmation, resolvePendingPeak, queueTrailingDropConfirmation, resolvePendingTrailingDrop, queueStopLossConfirmation, resolvePendingStopLoss } from "./state.js";
 import { getActiveStrategy } from "./strategy-library.js";
 import { recordPositionSnapshot, recallForPool, addPoolNote } from "./pool-memory.js";
 import { checkSmartWalletsOnPool } from "./smart-wallets.js";
@@ -61,10 +61,13 @@ let _screeningLastTriggered = 0; // epoch ms — prevents management from spammi
 let _pollTriggeredAt = 0; // epoch ms — cooldown for poller-triggered management
 const _peakConfirmTimers = new Map();
 const _trailingDropConfirmTimers = new Map();
+const _stopLossConfirmTimers = new Map();
 const TRAILING_PEAK_CONFIRM_DELAY_MS = 15_000;
 const TRAILING_PEAK_CONFIRM_TOLERANCE = 0.85;
 const TRAILING_DROP_CONFIRM_DELAY_MS = 15_000;
 const TRAILING_DROP_CONFIRM_TOLERANCE_PCT = 0.3;
+const STOP_LOSS_CONFIRM_DELAY_MS = 15_000;
+const STOP_LOSS_CONFIRM_TOLERANCE_PCT = 0.5;
 
 /** Strip <think>...</think> reasoning blocks that some models leak into output */
 function stripThink(text) {
@@ -130,6 +133,38 @@ function scheduleTrailingDropConfirmation(positionAddress) {
   }, TRAILING_DROP_CONFIRM_DELAY_MS);
 
   _trailingDropConfirmTimers.set(positionAddress, timer);
+}
+
+function scheduleStopLossConfirmation(positionAddress) {
+  if (!positionAddress || _stopLossConfirmTimers.has(positionAddress)) return;
+
+  const timer = setTimeout(async () => {
+    _stopLossConfirmTimers.delete(positionAddress);
+    try {
+      const result = await getMyPositions({ force: true, silent: true }).catch(() => null);
+      const position = result?.positions?.find((p) => p.position === positionAddress);
+      const resolved = resolvePendingStopLoss(
+        positionAddress,
+        position?.pnl_pct ?? null,
+        config.management.stopLossPct,
+        STOP_LOSS_CONFIRM_TOLERANCE_PCT,
+      );
+      if (resolved?.confirmed) {
+        log("state", `[SL recheck] Confirmed stop loss for ${positionAddress} — closing directly`);
+        try {
+          await closePosition({ position_address: positionAddress, reason: resolved.reason });
+          log("state", `[Stop Loss] Direct close succeeded for ${positionAddress}`);
+        } catch (closeErr) {
+          log("cron_error", `[Stop Loss] Direct close failed for ${positionAddress}: ${closeErr.message} — falling back to management cycle`);
+          runManagementCycle({ silent: true }).catch((e) => log("cron_error", `SL recheck management failed: ${e.message}`));
+        }
+      }
+    } catch (error) {
+      log("state_warn", `Stop loss confirmation failed for ${positionAddress}: ${error.message}`);
+    }
+  }, STOP_LOSS_CONFIRM_DELAY_MS);
+
+  _stopLossConfirmTimers.set(positionAddress, timer);
 }
 
 async function runBriefing() {
@@ -214,6 +249,12 @@ export async function runManagementCycle({ silent = false } = {}) {
           }
           continue;
         }
+        if (exit.action === "STOP_LOSS" && exit.needs_confirmation) {
+          if (queueStopLossConfirmation(p.position, exit.current_pnl_pct)) {
+            scheduleStopLossConfirmation(p.position);
+          }
+          continue;
+        }
         exitMap.set(p.position, exit.reason);
         log("state", `Exit alert for ${p.pair}: ${exit.reason}`);
       }
@@ -248,11 +289,6 @@ export async function runManagementCycle({ silent = false } = {}) {
         return false;
       })();
 
-      // Rule 1: stop loss
-      if (!pnlSuspect && p.pnl_pct != null && p.pnl_pct <= config.management.stopLossPct) {
-        actionMap.set(p.position, { action: "CLOSE", rule: 1, reason: "stop loss" });
-        continue;
-      }
       // Rule 2: take profit (skip if trailing TP is active — trailing handles the exit)
       if (!pnlSuspect && !tracked?.trailing_active && p.pnl_pct != null && p.pnl_pct >= config.management.takeProfitFeePct) {
         actionMap.set(p.position, { action: "CLOSE", rule: 2, reason: "take profit" });
@@ -684,6 +720,12 @@ Summarize the current portfolio health, total fees earned, and performance of al
           if (exit.action === "TRAILING_TP" && exit.needs_confirmation) {
             if (queueTrailingDropConfirmation(p.position, exit.peak_pnl_pct, exit.current_pnl_pct, config.management.trailingDropPct)) {
               scheduleTrailingDropConfirmation(p.position);
+            }
+            continue;
+          }
+          if (exit.action === "STOP_LOSS" && exit.needs_confirmation) {
+            if (queueStopLossConfirmation(p.position, exit.current_pnl_pct)) {
+              scheduleStopLossConfirmation(p.position);
             }
             continue;
           }
