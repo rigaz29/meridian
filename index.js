@@ -9,7 +9,7 @@ import { getTopCandidates } from "./tools/screening.js";
 import { config, reloadScreeningThresholds, computeDeployAmount } from "./config.js";
 import { evolveThresholds, getPerformanceSummary, bootstrapFromHistory } from "./lessons.js";
 import { registerCronRestarter } from "./tools/executor.js";
-import { startPolling, stopPolling, sendMessage, sendHTML, notifyOutOfRange, isEnabled as telegramEnabled, createLiveMessage } from "./telegram.js";
+import { startPolling, stopPolling, sendMessage, sendHTML, notifyOutOfRange, isEnabled as telegramEnabled, createLiveMessage, formatPositionsList } from "./telegram.js";
 import { generateBriefing } from "./briefing.js";
 import { getLastBriefingDate, setLastBriefingDate, getTrackedPosition, setPositionInstruction, updatePnlAndCheckExits, queuePeakConfirmation, resolvePendingPeak, queueTrailingDropConfirmation, resolvePendingTrailingDrop, queueStopLossConfirmation, resolvePendingStopLoss } from "./state.js";
 import { getActiveStrategy } from "./strategy-library.js";
@@ -410,7 +410,7 @@ After executing, write a brief one-line result per position.
     if (!silent && telegramEnabled()) {
       if (mgmtReport) {
         if (liveMessage) await liveMessage.finalize(stripThink(mgmtReport)).catch(() => {});
-        else sendMessage(`🔄 Management Cycle\n\n${stripThink(mgmtReport)}`).catch(() => { });
+        else sendHTML(`🔄 <b>Management Cycle</b>\n<code>──────────────────</code>\n${stripThink(mgmtReport).slice(0, 3800)}`).catch(() => { });
       }
       for (const p of positions) {
         if (!p.in_range && p.minutes_out_of_range >= config.management.outOfRangeWaitMinutes) {
@@ -659,7 +659,7 @@ IMPORTANT:
     if (!silent && telegramEnabled()) {
       if (screenReport) {
         if (liveMessage) await liveMessage.finalize(stripThink(screenReport)).catch(() => {});
-        else sendMessage(`🔍 Screening Cycle\n\n${stripThink(screenReport)}`).catch(() => { });
+        else sendHTML(`🔍 <b>Screening Cycle</b>\n<code>──────────────────</code>\n${stripThink(screenReport).slice(0, 3800)}`).catch(() => { });
       }
     }
   }
@@ -849,15 +849,8 @@ async function telegramHandler(msg) {
   if (text === "/positions") {
     try {
       const { positions, total_positions } = await getMyPositions({ force: true });
-      if (total_positions === 0) { await sendMessage("No open positions."); return; }
-      const cur = config.management.solMode ? "◎" : "$";
-      const lines = positions.map((p, i) => {
-        const pnl = p.pnl_usd >= 0 ? `+${cur}${p.pnl_usd}` : `-${cur}${Math.abs(p.pnl_usd)}`;
-        const age = p.age_minutes != null ? `${p.age_minutes}m` : "?";
-        const oor = !p.in_range ? " ⚠️OOR" : "";
-        return `${i + 1}. ${p.pair} | ${cur}${p.total_value_usd} | PnL: ${pnl} | fees: ${cur}${p.unclaimed_fees_usd} | ${age}${oor}`;
-      });
-      await sendMessage(`📊 Open Positions (${total_positions}):\n\n${lines.join("\n")}\n\n/close <n> to close | /set <n> <note> to set instruction`);
+      if (total_positions === 0) { await sendHTML("📭 <b>No open positions.</b>"); return; }
+      await sendHTML(formatPositionsList(positions, { solMode: config.management.solMode }));
     } catch (e) { await sendMessage(`Error: ${e.message}`).catch(() => {}); }
     return;
   }
@@ -869,14 +862,25 @@ async function telegramHandler(msg) {
       const { positions } = await getMyPositions({ force: true });
       if (idx < 0 || idx >= positions.length) { await sendMessage("Invalid number. Use /positions first."); return; }
       const pos = positions[idx];
-      await sendMessage(`Closing ${pos.pair}...`);
+      await sendHTML(`⏳ <b>Closing ${pos.pair}...</b>`);
       const result = await closePosition({ position_address: pos.position });
       if (result.success) {
+        const cur = config.management.solMode ? "◎" : "$";
+        const pnlUsd = Number(result.pnl_usd ?? 0);
+        const icon = pnlUsd >= 0 ? "🟢" : "🔴";
         const closeTxs = result.close_txs?.length ? result.close_txs : result.txs;
-        const claimNote = result.claim_txs?.length ? `\nClaim txs: ${result.claim_txs.join(", ")}` : "";
-        await sendMessage(`✅ Closed ${pos.pair}\nPnL: ${config.management.solMode ? "◎" : "$"}${result.pnl_usd ?? "?"} | close txs: ${closeTxs?.join(", ") || "n/a"}${claimNote}`);
+        const claimNote = result.claim_txs?.length
+          ? `\n💎 Claim txs: <code>${result.claim_txs[0]?.slice(0, 16)}...</code>`
+          : "";
+        await sendHTML(
+          `${icon} <b>Closed — ${pos.pair}</b>\n` +
+          `<code>──────────────────</code>\n` +
+          `💵 PnL: <b>${pnlUsd >= 0 ? "+" : ""}${cur}${Math.abs(pnlUsd).toFixed(2)}</b>\n` +
+          `📋 Tx: <code>${closeTxs?.[0]?.slice(0, 16) ?? "n/a"}...</code>` +
+          claimNote
+        );
       } else {
-        await sendMessage(`❌ Close failed: ${JSON.stringify(result)}`);
+        await sendHTML(`❌ <b>Close failed</b> — ${pos.pair}\n<code>${JSON.stringify(result).slice(0, 200)}</code>`);
       }
     } catch (e) { await sendMessage(`Error: ${e.message}`).catch(() => {}); }
     return;
@@ -900,9 +904,15 @@ async function telegramHandler(msg) {
   if (bootstrapMatch) {
     const walletAddr = bootstrapMatch[1].trim();
     try {
-      await sendMessage(`Bootstrapping from wallet ${walletAddr.slice(0, 8)}...`);
+      await sendHTML(`⏳ <b>Bootstrapping from wallet</b>\n<code>${walletAddr.slice(0, 16)}...</code>`);
       const result = await bootstrapFromHistory(walletAddr, { limit: 25 });
-      await sendMessage(`Bootstrap complete:\n• Imported: ${result.imported}\n• Skipped: ${result.skipped} (already known)\n• Lessons generated: ${result.lessons_generated}`);
+      await sendHTML(
+        `✅ <b>Bootstrap complete</b>\n` +
+        `<code>──────────────────</code>\n` +
+        `📥 Imported: <b>${result.imported}</b>\n` +
+        `⏭ Skipped: <b>${result.skipped}</b> (already known)\n` +
+        `🧠 Lessons: <b>${result.lessons_generated}</b>`
+      );
     } catch (e) { await sendMessage(`Error: ${e.message}`).catch(() => {}); }
     return;
   }

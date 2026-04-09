@@ -76,6 +76,34 @@ function isAuthorizedIncomingMessage(msg) {
   return true;
 }
 
+// ─── Formatting helpers ──────────────────────────────────────────
+const DIV = "──────────────────";
+
+/** Escape special HTML chars for Telegram HTML mode */
+function esc(str) {
+  return String(str ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function fmtPct(pct) {
+  const v = Number(pct ?? 0);
+  return `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`;
+}
+
+function fmtUsd(usd) {
+  const v = Number(usd ?? 0);
+  return `${v >= 0 ? "+" : "-"}$${Math.abs(v).toFixed(2)}`;
+}
+
+function fmtPrice(p) {
+  if (p == null) return "?";
+  return p < 0.0001 ? p.toExponential(3) : p.toFixed(6);
+}
+
+function progressBar(pct, width = 16) {
+  const filled = Math.round((Math.min(Math.max(pct, 0), 100) / 100) * width);
+  return "█".repeat(filled) + "░".repeat(width - filled);
+}
+
 // ─── Core send ───────────────────────────────────────────────────
 export function isEnabled() {
   return !!TOKEN;
@@ -119,6 +147,15 @@ export async function editMessage(text, messageId) {
   });
 }
 
+async function editHTML(html, messageId) {
+  if (!TOKEN || !chatId || !messageId) return null;
+  return postTelegram("editMessageText", {
+    message_id: messageId,
+    text: html.slice(0, 4096),
+    parse_mode: "HTML",
+  });
+}
+
 export function hasActiveLiveMessage() {
   return _liveMessageDepth > 0;
 }
@@ -152,24 +189,29 @@ function createTypingIndicator() {
 
 function toolLabel(name) {
   const labels = {
-    get_token_info: "get token info",
-    get_token_narrative: "get token narrative",
-    get_token_holders: "get token holders",
-    get_top_candidates: "get top candidates",
-    get_pool_detail: "get pool detail",
-    get_active_bin: "get active bin",
-    deploy_position: "deploy position",
-    close_position: "close position",
-    claim_fees: "claim fees",
-    swap_token: "swap token",
-    update_config: "update config",
-    get_my_positions: "get positions",
-    get_wallet_balance: "get wallet balance",
-    check_smart_wallets_on_pool: "check smart wallets",
-    study_top_lpers: "study top LPers",
-    get_top_lpers: "get top LPers",
-    search_pools: "search pools",
-    discover_pools: "discover pools",
+    get_token_info:            "Token info",
+    get_token_narrative:       "Token narrative",
+    get_token_holders:         "Token holders",
+    get_top_candidates:        "Top candidates",
+    get_pool_detail:           "Pool detail",
+    get_active_bin:            "Active bin",
+    deploy_position:           "Deploy position",
+    close_position:            "Close position",
+    claim_fees:                "Claim fees",
+    swap_token:                "Swap token",
+    update_config:             "Update config",
+    get_my_positions:          "Positions",
+    get_wallet_balance:        "Wallet balance",
+    check_smart_wallets_on_pool: "Smart wallets",
+    study_top_lpers:           "Study top LPers",
+    get_top_lpers:             "Top LPers",
+    search_pools:              "Search pools",
+    discover_pools:            "Discover pools",
+    check_pool_eligibility:    "Pool eligibility check",
+    get_position_pnl:          "Position PnL",
+    set_position_note:         "Set note",
+    get_pool_ohlcv:            "Pool OHLCV",
+    bootstrap_history:         "Bootstrap history",
   };
   return labels[name] || name.replace(/_/g, " ");
 }
@@ -180,11 +222,11 @@ function summarizeToolResult(name, result) {
   if (result.reason && result.blocked) return result.reason;
   switch (name) {
     case "deploy_position":
-      return result.position ? `position ${String(result.position).slice(0, 8)}...` : "submitted";
+      return result.position ? `${String(result.position).slice(0, 8)}...` : "submitted";
     case "close_position":
-      return result.success ? "closed" : (result.reason || "failed");
+      return result.success ? "closed ✓" : (result.reason || "failed");
     case "claim_fees":
-      return result.claimed_amount != null ? `claimed ${result.claimed_amount}` : "done";
+      return result.claimed_amount != null ? `${result.claimed_amount} SOL` : "done";
     case "update_config":
       return Object.keys(result.applied || {}).join(", ") || "updated";
     case "get_top_candidates":
@@ -196,11 +238,14 @@ function summarizeToolResult(name, result) {
     case "study_top_lpers":
     case "get_top_lpers":
       return `${result.lpers?.length ?? 0} LPers`;
+    case "check_pool_eligibility":
+      return result.eligible ? "eligible ✓" : `rejected — ${result.fail_reason ?? "criteria not met"}`;
     default:
       return result.success === false ? "failed" : "done";
   }
 }
 
+// ─── Live message (agent thinking indicator) ─────────────────────
 export async function createLiveMessage(title, intro = "Starting...") {
   if (!TOKEN || !chatId) return null;
   const typing = createTypingIndicator();
@@ -217,23 +262,25 @@ export async function createLiveMessage(title, intro = "Starting...") {
   };
 
   function render() {
-    const sections = [state.title];
-    if (state.intro) sections.push(state.intro);
-    if (state.toolLines.length > 0) sections.push(state.toolLines.join("\n"));
-    if (state.footer) sections.push(state.footer);
-    return sections.join("\n\n").slice(0, 4096);
+    const parts = [
+      `<b>${esc(state.title)}</b>`,
+      state.intro ? esc(state.intro) : null,
+      state.toolLines.length > 0 ? `<code>${DIV}</code>\n${state.toolLines.join("\n")}` : null,
+      state.footer ? `<code>${DIV}</code>\n${esc(state.footer)}` : null,
+    ].filter(Boolean);
+    return parts.join("\n").slice(0, 4096);
   }
 
   async function flushNow() {
     state.flushTimer = null;
     state.flushRequested = false;
-    const text = render();
+    const html = render();
     if (!state.messageId) {
-      const sent = await sendMessage(text);
+      const sent = await sendHTML(html);
       state.messageId = sent?.result?.message_id ?? null;
       return;
     }
-    await editMessage(text, state.messageId);
+    await editHTML(html, state.messageId);
   }
 
   function scheduleFlush(delay = 300) {
@@ -248,8 +295,8 @@ export async function createLiveMessage(title, intro = "Starting...") {
 
   async function upsertToolLine(name, icon, suffix = "") {
     const label = toolLabel(name);
-    const line = `${icon} ${label}${suffix ? ` ${suffix}` : ""}`;
-    const idx = state.toolLines.findIndex((entry) => entry.includes(` ${label}`));
+    const line = `${icon} <i>${esc(label)}</i>${suffix ? ` — ${esc(suffix)}` : ""}`;
+    const idx = state.toolLines.findIndex((entry) => entry.includes(`<i>${esc(label)}</i>`));
     if (idx >= 0) state.toolLines[idx] = line;
     else state.toolLines.push(line);
     scheduleFlush();
@@ -260,12 +307,12 @@ export async function createLiveMessage(title, intro = "Starting...") {
 
   return {
     async toolStart(name) {
-      await upsertToolLine(name, "ℹ️", "...");
+      await upsertToolLine(name, "⏳", "...");
     },
     async toolFinish(name, result, success) {
       const icon = success ? "✅" : "❌";
       const summary = summarizeToolResult(name, result);
-      await upsertToolLine(name, icon, summary ? `— ${summary}` : "");
+      await upsertToolLine(name, icon, summary || "");
     },
     async note(text) {
       state.intro = text;
@@ -335,47 +382,110 @@ export function stopPolling() {
 }
 
 // ─── Notification helpers ────────────────────────────────────────
-export async function notifyDeploy({ pair, amountSol, position, tx, priceRange, binStep, baseFee }) {
+
+export async function notifyDeploy({ pair, amountSol, position, tx, priceRange, binStep, baseFee, strategy }) {
   if (hasActiveLiveMessage()) return;
-  const priceStr = priceRange
-    ? `Price range: ${priceRange.min < 0.0001 ? priceRange.min.toExponential(3) : priceRange.min.toFixed(6)} – ${priceRange.max < 0.0001 ? priceRange.max.toExponential(3) : priceRange.max.toFixed(6)}\n`
+
+  const rangeStr = priceRange
+    ? `\n📊 Range: <code>${fmtPrice(priceRange.min)}</code> – <code>${fmtPrice(priceRange.max)}</code>`
     : "";
   const poolStr = (binStep || baseFee)
-    ? `Bin step: ${binStep ?? "?"}  |  Base fee: ${baseFee != null ? baseFee + "%" : "?"}\n`
-    : "";
+    ? `\n⚙️ Bin step: <b>${binStep ?? "?"}</b>  │  Base fee: <b>${baseFee != null ? baseFee + "%" : "?"}</b>${strategy ? `  │  Strategy: <b>${strategy}</b>` : ""}`
+    : strategy ? `\n🎯 Strategy: <b>${strategy}</b>` : "";
+
   await sendHTML(
-    `✅ <b>Deployed</b> ${pair}\n` +
-    `Amount: ${amountSol} SOL\n` +
-    priceStr +
+    `✅ <b>DEPLOYED — ${esc(pair)}</b>\n` +
+    `<code>${DIV}</code>\n` +
+    `💰 Amount: <b>${amountSol} SOL</b>` +
     poolStr +
-    `Position: <code>${position?.slice(0, 8)}...</code>\n` +
-    `Tx: <code>${tx?.slice(0, 16)}...</code>`
+    rangeStr +
+    `\n🔑 Position: <code>${position?.slice(0, 12)}...</code>` +
+    (tx ? `\n📋 Tx: <code>${tx.slice(0, 16)}...</code>` : "")
   );
 }
 
-export async function notifyClose({ pair, pnlUsd, pnlPct }) {
+export async function notifyClose({ pair, pnlUsd, pnlPct, feesEarned, reason, rangeEfficiency }) {
   if (hasActiveLiveMessage()) return;
-  const sign = pnlUsd >= 0 ? "+" : "";
+
+  const profit = Number(pnlUsd ?? 0) >= 0;
+  const icon = profit ? "🟢" : "🔴";
+  const pnlLine = `💵 PnL: <b>${fmtUsd(pnlUsd)}</b> (<b>${fmtPct(pnlPct)}</b>)`;
+  const feesLine = feesEarned != null && feesEarned > 0
+    ? `\n💎 Fees: <b>+$${Number(feesEarned).toFixed(2)}</b>`
+    : "";
+  const effLine = rangeEfficiency != null
+    ? `\n📐 Range eff: <b>${Number(rangeEfficiency).toFixed(1)}%</b> ${progressBar(rangeEfficiency, 12)}`
+    : "";
+  const reasonLine = reason
+    ? `\n📌 <i>${esc(String(reason).slice(0, 120))}</i>`
+    : "";
+
   await sendHTML(
-    `🔒 <b>Closed</b> ${pair}\n` +
-    `PnL: ${sign}$${(pnlUsd ?? 0).toFixed(2)} (${sign}${(pnlPct ?? 0).toFixed(2)}%)`
+    `${icon} <b>CLOSED — ${esc(pair)}</b>\n` +
+    `<code>${DIV}</code>\n` +
+    pnlLine +
+    feesLine +
+    effLine +
+    reasonLine
   );
 }
 
 export async function notifySwap({ inputSymbol, outputSymbol, amountIn, amountOut, tx }) {
   if (hasActiveLiveMessage()) return;
+
+  const inStr  = amountIn  != null ? String(Number(amountIn).toLocaleString("en", { maximumFractionDigits: 6 }))  : "?";
+  const outStr = amountOut != null ? String(Number(amountOut).toLocaleString("en", { maximumFractionDigits: 6 })) : "?";
+
   await sendHTML(
-    `🔄 <b>Swapped</b> ${inputSymbol} → ${outputSymbol}\n` +
-    `In: ${amountIn ?? "?"} | Out: ${amountOut ?? "?"}\n` +
-    `Tx: <code>${tx?.slice(0, 16)}...</code>`
+    `🔄 <b>SWAPPED</b>\n` +
+    `<code>${DIV}</code>\n` +
+    `<b>${esc(inputSymbol ?? "?")} → ${esc(outputSymbol ?? "?")}</b>\n` +
+    `📥 In: <code>${inStr}</code>\n` +
+    `📤 Out: <code>${outStr}</code>` +
+    (tx ? `\n📋 Tx: <code>${tx.slice(0, 16)}...</code>` : "")
   );
 }
 
 export async function notifyOutOfRange({ pair, minutesOOR }) {
   if (hasActiveLiveMessage()) return;
   await sendHTML(
-    `⚠️ <b>Out of Range</b> ${pair}\n` +
-    `Been OOR for ${minutesOOR} minutes`
+    `⚠️ <b>OUT OF RANGE — ${esc(pair)}</b>\n` +
+    `<code>${DIV}</code>\n` +
+    `⏱ OOR for <b>${minutesOOR}m</b> — will close if no recovery`
+  );
+}
+
+/**
+ * Render a formatted HTML /positions list.
+ * Called from index.js Telegram command handler.
+ */
+export function formatPositionsList(positions, { solMode = false } = {}) {
+  const cur = solMode ? "◎" : "$";
+  const total = positions.length;
+
+  const lines = positions.map((p, i) => {
+    const pnlUsd = Number(p.pnl_usd ?? 0);
+    const pnlPct = Number(p.pnl_pct ?? 0);
+    const val    = Number(p.total_value_usd ?? 0);
+    const fees   = Number(p.unclaimed_fees_usd ?? 0);
+    const age    = p.age_minutes != null ? `${p.age_minutes}m` : "?";
+    const inRange = p.in_range;
+    const oor = !inRange ? `🔴 OOR ${p.minutes_out_of_range ?? 0}m` : "🟢 In range";
+    const pnlSign = pnlUsd >= 0 ? "+" : "";
+
+    return (
+      `<b>${i + 1}. ${esc(p.pair)}</b>  <i>${age}</i>\n` +
+      `   ${cur}${val.toFixed(2)} │ PnL: <b>${pnlSign}${cur}${Math.abs(pnlUsd).toFixed(2)} (${fmtPct(pnlPct)})</b>\n` +
+      `   💎 Fees: ${cur}${fees.toFixed(2)} │ ${oor}`
+    );
+  });
+
+  return (
+    `📊 <b>Open Positions (${total})</b>\n` +
+    `<code>${DIV}</code>\n` +
+    lines.join(`\n<code>${DIV}</code>\n`) +
+    `\n<code>${DIV}</code>\n` +
+    `<i>/close &lt;n&gt; • /set &lt;n&gt; &lt;note&gt;</i>`
   );
 }
 
