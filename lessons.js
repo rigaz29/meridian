@@ -239,29 +239,7 @@ export function evolveThresholds(perfData, config) {
 
   const changes = {}, rationale = {};
 
-  // ── 1. maxVolatility ─────────────────────────────────────────
-  {
-    const winnerVols = winners.map((p) => p.volatility).filter(isFiniteNum);
-    const loserVols  = losers.map((p) => p.volatility).filter(isFiniteNum);
-    const current    = config.screening.maxVolatility;
-    if (current != null && loserVols.length >= 2) {
-      const loserP25 = percentile(loserVols, 25);
-      if (loserP25 < current) {
-        const newVal = clamp(nudge(current, loserP25 * 1.15, MAX_CHANGE_PER_STEP), 1.0, 20.0);
-        const rounded = Number(newVal.toFixed(1));
-        if (rounded < current) { changes.maxVolatility = rounded; rationale.maxVolatility = `Losers clustered at ~${loserP25.toFixed(1)} — tightened ${current} → ${rounded}`; }
-      }
-    } else if (current != null && winnerVols.length >= 3 && losers.length === 0) {
-      const winnerP75 = percentile(winnerVols, 75);
-      if (winnerP75 > current * 1.1) {
-        const newVal = clamp(nudge(current, winnerP75 * 1.1, MAX_CHANGE_PER_STEP), 1.0, 20.0);
-        const rounded = Number(newVal.toFixed(1));
-        if (rounded > current) { changes.maxVolatility = rounded; rationale.maxVolatility = `All ${winners.length} profitable — loosened ${current} → ${rounded}`; }
-      }
-    }
-  }
-
-  // ── 2. minFeeActiveTvlRatio ──────────────────────────────────
+  // ── 1. minFeeActiveTvlRatio ──────────────────────────────────
   {
     const winnerFees = winners.map((p) => p.fee_tvl_ratio).filter(isFiniteNum);
     const loserFees  = losers.map((p) => p.fee_tvl_ratio).filter(isFiniteNum);
