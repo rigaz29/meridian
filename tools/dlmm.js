@@ -125,8 +125,9 @@ export async function deployPosition({
   pool_address = normalizeMint(pool_address);
   const activeStrategy = strategy || config.strategy.strategy;
 
-  const targetDownside = config.strategy.targetDownsidePct ?? 0.35;
-  const targetUpside   = config.strategy.targetUpsidePct   ?? 0.20;
+  const vol = (typeof volatility === "number" && volatility >= 0) ? volatility : 2.5;
+  const targetDownside = Math.min(0.55, 0.25 + (vol / 5) * 0.30);  // vol=0→25%, vol=2.5→40%, vol=5→55%
+  const targetUpside   = Math.min(0.35, 0.15 + (vol / 5) * 0.15);  // vol=0→15%, vol=2.5→22.5%, vol=5→30%
 
   // Preliminary estimate using provided bin_step (used for DRY_RUN and wide-range check)
   const estBinStep = bin_step ?? 100;
@@ -170,6 +171,7 @@ export async function deployPosition({
   const activeBin = await pool.getActiveBin();
 
   // Recalculate bins using actual pool bin_step (unless explicitly provided by caller)
+  // targetDownside/targetUpside already computed above using volatility
   const actualBinStep = pool.lbPair.binStep;
   const finalBinsBelow = bins_below != null
     ? bins_below

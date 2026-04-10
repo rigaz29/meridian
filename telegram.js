@@ -256,6 +256,7 @@ export async function createLiveMessage(title, intro = "Starting...") {
     toolLines: [],
     footer: "",
     messageId: null,
+    lastSentHtml: null,
     flushTimer: null,
     flushPromise: null,
     flushRequested: false,
@@ -278,9 +279,12 @@ export async function createLiveMessage(title, intro = "Starting...") {
     if (!state.messageId) {
       const sent = await sendHTML(html);
       state.messageId = sent?.result?.message_id ?? null;
+      state.lastSentHtml = html;
       return;
     }
+    if (html === state.lastSentHtml) return;
     await editHTML(html, state.messageId);
+    state.lastSentHtml = html;
   }
 
   function scheduleFlush(delay = 300) {

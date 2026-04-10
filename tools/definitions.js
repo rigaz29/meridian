@@ -163,7 +163,7 @@ HARD RULES:
 
 Guidelines (only when user hasn't specified):
 - Strategy: choose bid_ask (momentum/directional) or spot (range-bound/fee farming) based on signals
-- Bins: auto-calculated from config.strategy.targetDownsidePct / targetUpsidePct — omit bins_below/bins_above unless overriding
+- Bins: auto-calculated from volatility (0–5 scale) — omit bins_below/bins_above unless overriding. Always pass volatility so range adapts correctly.
 - Deposit: Can be single-sided (SOL only or Base only) or dual-sided.
 
 WARNING: This executes a real on-chain transaction. Check DRY_RUN mode.`,
@@ -203,7 +203,7 @@ WARNING: This executes a real on-chain transaction. Check DRY_RUN mode.`,
           base_mint: { type: "string", description: "Base token mint address — used to prevent duplicate token exposure across pools" },
           bin_step: { type: "number", description: "Pool bin step (from discover_pools)" },
           base_fee: { type: "number", description: "Pool base fee percentage (from discover_pools)" },
-          volatility: { type: "number", description: "Pool volatility at deploy time" },
+          volatility: { type: "number", description: "Pool volatility at deploy time (0–5 scale). ALWAYS pass this — used to auto-scale range width: low vol→narrower range (higher fee concentration), high vol→wider range (fewer OOR exits)." },
           fee_tvl_ratio: { type: "number", description: "fee/TVL ratio at deploy time" },
           organic_score: { type: "number", description: "Base token organic score at deploy time" },
           initial_value_usd: { type: "number", description: "Estimated USD value being deployed" }
