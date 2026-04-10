@@ -88,15 +88,29 @@ import { config } from "./config.js";
 import { getStateSummary } from "./state.js";
 import { getLessonsForPrompt, getPerformanceSummary } from "./lessons.js";
 
-// Supports OpenRouter (default) or any OpenAI-compatible local server (e.g. LM Studio)
-// To use LM Studio: set LLM_BASE_URL=http://localhost:1234/v1 and LLM_API_KEY=lm-studio in .env
+// Supports OpenRouter (default), MiniMax, or any OpenAI-compatible provider.
+// MiniMax  : set LLM_BASE_URL=https://api.minimax.io/v1  and LLM_API_KEY or MINIMAX_API_KEY
+// LM Studio: set LLM_BASE_URL=http://localhost:1234/v1   and LLM_API_KEY=lm-studio
+const LLM_BASE_URL = process.env.LLM_BASE_URL || "https://openrouter.ai/api/v1";
+const IS_MINIMAX   = LLM_BASE_URL.includes("minimax.io");
+
 const client = new OpenAI({
-  baseURL: process.env.LLM_BASE_URL || "https://openrouter.ai/api/v1",
-  apiKey: process.env.LLM_API_KEY || process.env.OPENROUTER_API_KEY,
+  baseURL: LLM_BASE_URL,
+  apiKey:  process.env.LLM_API_KEY || process.env.MINIMAX_API_KEY || process.env.OPENROUTER_API_KEY,
   timeout: 5 * 60 * 1000,
 });
 
-const DEFAULT_MODEL = process.env.LLM_MODEL || "openrouter/healer-alpha";
+const DEFAULT_MODEL = process.env.LLM_MODEL || (IS_MINIMAX ? "MiniMax-M2.7" : "openrouter/healer-alpha");
+
+// Read Retry-After header from a 429 error object (OpenAI SDK wraps headers).
+function getRateLimitWaitMs(error, defaultMs) {
+  const retryAfter = error?.headers?.["retry-after"] ?? error?.response?.headers?.["retry-after"];
+  if (retryAfter != null) {
+    const secs = parseFloat(retryAfter);
+    if (!isNaN(secs) && secs > 0) return Math.min(secs * 1000, 120_000);
+  }
+  return defaultMs;
+}
 
 const TOOL_REQUIRED_INTENTS = /\b(deploy|open position|open|add liquidity|lp into|invest in|close|exit|withdraw|remove liquidity|claim|harvest|collect|swap|convert|sell|exchange|block|unblock|blacklist|self.?update|pull latest|git pull|update yourself|config|setting|threshold|set |change|update |balance|wallet|position|portfolio|pnl|yield|range|screen|candidate|find pool|search|research|token|smart wallet|whale|watch.?list|tracked wallet|study top|top lpers?|lp behavior|who.?s lping|performance|history|stats|report|lesson|learned|teach|pin|unpin)\b/i;
 
@@ -171,7 +185,8 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
       const activeModel = model || DEFAULT_MODEL;
 
       // Retry up to 3 times on transient provider errors (502, 503, 529)
-      const FALLBACK_MODEL = "stepfun/step-3.5-flash:free";
+      // MiniMax fallback: highspeed variant (lower latency, same quality tier)
+      const FALLBACK_MODEL = IS_MINIMAX ? "MiniMax-M2.7-highspeed" : "stepfun/step-3.5-flash:free";
       let response;
       let usedModel = activeModel;
       // Force a tool call on step 0 for action intents — prevents the model from inventing deploy/close outcomes
@@ -202,9 +217,35 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
             attempt -= 1;
             continue;
           }
+          // 429 inside the retry loop — honour Retry-After if present, then backoff
+          if (error.status === 429 && attempt < 2) {
+            const waitMs = getRateLimitWaitMs(error, (attempt + 1) * 15_000);
+            log("agent", `Rate limited (attempt ${attempt + 1}/3) — waiting ${Math.round(waitMs / 1000)}s`);
+            await new Promise((r) => setTimeout(r, waitMs));
+            continue;
+          }
           throw error;
         }
         if (response.choices?.length) break;
+        // MiniMax returns base_resp errors on HTTP 200 (native API format leaking through)
+        // status_code 1000 = OK, 1002 = rate limit, 1013 = service unavailable
+        if (IS_MINIMAX && response.base_resp?.status_code != null && response.base_resp.status_code !== 1000) {
+          const mmCode = response.base_resp.status_code;
+          const mmMsg  = response.base_resp.status_msg || "";
+          if ((mmCode === 1002 || mmCode === 1013) && attempt < 2) {
+            const wait = (attempt + 1) * 8_000;
+            if (attempt === 1 && usedModel !== FALLBACK_MODEL) {
+              usedModel = FALLBACK_MODEL;
+              log("agent", `MiniMax error ${mmCode} — switching to fallback model ${FALLBACK_MODEL}`);
+            } else {
+              log("agent", `MiniMax error ${mmCode} (${mmMsg}), retrying in ${wait / 1000}s (attempt ${attempt + 1}/3)`);
+              await new Promise((r) => setTimeout(r, wait));
+            }
+            continue;
+          }
+          log("error", `MiniMax API error ${mmCode}: ${mmMsg}`);
+          throw new Error(`MiniMax API error ${mmCode}: ${mmMsg}`);
+        }
         const errCode = response.error?.code;
         if (errCode === 502 || errCode === 503 || errCode === 529) {
           const wait = (attempt + 1) * 5000;
@@ -344,10 +385,11 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
     } catch (error) {
       log("error", `Agent loop error at step ${step}: ${error.message}`);
 
-      // If it's a rate limit, wait and retry
+      // Rate limited — honour Retry-After header, fallback to 30s
       if (error.status === 429) {
-        log("agent", "Rate limited, waiting 30s...");
-        await sleep(30000);
+        const waitMs = getRateLimitWaitMs(error, 30_000);
+        log("agent", `Rate limited — waiting ${Math.round(waitMs / 1000)}s...`);
+        await sleep(waitMs);
         continue;
       }
 

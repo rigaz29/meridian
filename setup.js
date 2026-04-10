@@ -300,11 +300,11 @@ const LLM_PROVIDERS = [
     modelDefault: "nousresearch/hermes-3-llama-3.1-405b",
   },
   {
-    label:   "MiniMax      (api.minimax.io)",
+    label:   "MiniMax      (api.minimax.io — MiniMax-M2.7)",
     key:     "minimax",
     baseUrl: "https://api.minimax.io/v1",
     keyHint: "your MiniMax API key",
-    modelDefault: "MiniMax-Text-01",
+    modelDefault: "MiniMax-M2.7",
   },
   {
     label:   "OpenAI       (api.openai.com)",
@@ -337,7 +337,7 @@ if (provider.key === "local" || provider.key === "custom") {
   llmBaseUrl = await ask("Base URL", e("llmBaseUrl", provider.baseUrl || "http://localhost:1234/v1"));
 }
 
-const llmApiKeyExisting = e("llmApiKey", existingEnv.LLM_API_KEY || existingEnv.OPENROUTER_API_KEY || "");
+const llmApiKeyExisting = e("llmApiKey", existingEnv.LLM_API_KEY || existingEnv.MINIMAX_API_KEY || existingEnv.OPENROUTER_API_KEY || "");
 const llmApiKeyRaw = await ask("API Key", llmApiKeyExisting ? "*** (already set)" : (provider.keyHint || ""));
 const llmApiKey   = llmApiKeyRaw.startsWith("***") ? llmApiKeyExisting : llmApiKeyRaw;
 
@@ -359,6 +359,8 @@ const envMap = {
   ...(isKept(heliusKey)     ? {} : { HELIUS_API_KEY: heliusKey }),
   ...(isKept(telegramToken) ? {} : { TELEGRAM_BOT_TOKEN: telegramToken }),
   ...(telegramChatId        ? { TELEGRAM_CHAT_ID: telegramChatId } : {}),
+  // For MiniMax provider: also write MINIMAX_API_KEY for direct env access
+  ...(provider.key === "minimax" && !isKept(llmApiKeyRaw) ? { MINIMAX_API_KEY: llmApiKey } : {}),
   DRY_RUN: dryRun ? "true" : "false",
 };
 fs.writeFileSync(ENV_PATH, buildEnv(envMap));
@@ -414,7 +416,7 @@ console.log(`
   Cycles:       management every ${managementIntervalMin}m  ·  screening every ${screeningIntervalMin}m
   Provider:     ${provider.label.split("(")[0].trim()}
   Model:        ${llmModel}
-  Base URL:     ${llmBaseUrl}
+  Base URL:     ${llmBaseUrl}${provider.key === "minimax" ? "\n\n  MiniMax limits: 500 RPM / 20M TPM (Starter may be lower — check platform.minimax.io)" : ""}
 
   Telegram:     ${telegramToken ? "enabled" : "disabled"}
   .env:         ${ENV_PATH}

@@ -13,10 +13,18 @@ const u = fs.existsSync(USER_CONFIG_PATH)
 // Apply wallet/RPC from user-config if not already in env
 if (u.rpcUrl)    process.env.RPC_URL            ||= u.rpcUrl;
 if (u.walletKey) process.env.WALLET_PRIVATE_KEY ||= u.walletKey;
-if (u.llmModel)  process.env.LLM_MODEL          ||= u.llmModel;
-if (u.llmBaseUrl) process.env.LLM_BASE_URL      ||= u.llmBaseUrl;
-if (u.llmApiKey)  process.env.LLM_API_KEY       ||= u.llmApiKey;
+if (u.llmModel)      process.env.LLM_MODEL        ||= u.llmModel;
+if (u.llmBaseUrl)    process.env.LLM_BASE_URL    ||= u.llmBaseUrl;
+if (u.llmApiKey)     process.env.LLM_API_KEY     ||= u.llmApiKey;
+if (u.minimaxApiKey) process.env.MINIMAX_API_KEY ||= u.minimaxApiKey;
 if (u.dryRun !== undefined) process.env.DRY_RUN ||= String(u.dryRun);
+
+// Derive sensible default model based on configured provider
+function _defaultModel() {
+  const base = process.env.LLM_BASE_URL || u.llmBaseUrl || "";
+  if (base.includes("minimax.io")) return "MiniMax-M2.7";
+  return "openrouter/healer-alpha";
+}
 
 export const config = {
   // ─── Risk Limits ─────────────────────────
@@ -96,9 +104,10 @@ export const config = {
     temperature: u.temperature ?? 0.373,
     maxTokens:   u.maxTokens   ?? 4096,
     maxSteps:    u.maxSteps    ?? 20,
-    managementModel: u.managementModel ?? process.env.LLM_MODEL ?? "openrouter/healer-alpha",
-    screeningModel:  u.screeningModel  ?? process.env.LLM_MODEL ?? "openrouter/hunter-alpha",
-    generalModel:    u.generalModel    ?? process.env.LLM_MODEL ?? "openrouter/healer-alpha",
+    // Default model: respect explicit overrides, then infer from provider
+    managementModel: u.managementModel ?? process.env.LLM_MODEL ?? _defaultModel(),
+    screeningModel:  u.screeningModel  ?? process.env.LLM_MODEL ?? _defaultModel(),
+    generalModel:    u.generalModel    ?? process.env.LLM_MODEL ?? _defaultModel(),
   },
 
   // ─── Common Token Mints ────────────────

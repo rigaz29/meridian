@@ -9,7 +9,7 @@ import { getTopCandidates } from "./tools/screening.js";
 import { config, reloadScreeningThresholds, computeDeployAmount } from "./config.js";
 import { evolveThresholds, getPerformanceSummary, bootstrapFromHistory } from "./lessons.js";
 import { registerCronRestarter } from "./tools/executor.js";
-import { startPolling, stopPolling, sendMessage, sendHTML, notifyOutOfRange, isEnabled as telegramEnabled, createLiveMessage, formatPositionsList } from "./telegram.js";
+import { startPolling, stopPolling, sendMessage, sendHTML, notifyOutOfRange, notifyClose, isEnabled as telegramEnabled, createLiveMessage, formatPositionsList } from "./telegram.js";
 import { generateBriefing } from "./briefing.js";
 import { getLastBriefingDate, setLastBriefingDate, getTrackedPosition, setPositionInstruction, updatePnlAndCheckExits, queuePeakConfirmation, resolvePendingPeak, queueTrailingDropConfirmation, resolvePendingTrailingDrop, queueStopLossConfirmation, resolvePendingStopLoss } from "./state.js";
 import { getActiveStrategy } from "./strategy-library.js";
@@ -120,8 +120,23 @@ function scheduleTrailingDropConfirmation(positionAddress) {
       if (resolved?.confirmed) {
         log("state", `[Trailing recheck] Confirmed trailing exit for ${positionAddress} — closing directly`);
         try {
-          await closePosition({ position_address: positionAddress, reason: resolved.reason });
+          const closeResult = await closePosition({ position_address: positionAddress, reason: resolved.reason });
           log("state", `[Trailing TP] Direct close succeeded for ${positionAddress}`);
+          if (closeResult?.success && telegramEnabled()) {
+            notifyClose({
+              pair:            closeResult.pool_name || positionAddress.slice(0, 8),
+              pnlUsd:          closeResult.pnl_usd          ?? 0,
+              pnlPct:          closeResult.pnl_pct          ?? 0,
+              feesEarned:      closeResult.fees_earned_usd,
+              reason:          resolved.reason,
+              rangeEfficiency: closeResult.range_efficiency,
+              ageMinutes:      closeResult.age_minutes,
+              deploySol:       closeResult.deploy_sol,
+              depositedUsd:    closeResult.deposited_usd,
+              withdrawnUsd:    closeResult.withdrawn_usd,
+              positionAddress,
+            }).catch(() => {});
+          }
         } catch (closeErr) {
           log("cron_error", `[Trailing TP] Direct close failed for ${positionAddress}: ${closeErr.message} — falling back to management cycle`);
           runManagementCycle({ silent: true }).catch((e) => log("cron_error", `Trailing recheck management failed: ${e.message}`));
@@ -152,8 +167,23 @@ function scheduleStopLossConfirmation(positionAddress) {
       if (resolved?.confirmed) {
         log("state", `[SL recheck] Confirmed stop loss for ${positionAddress} — closing directly`);
         try {
-          await closePosition({ position_address: positionAddress, reason: resolved.reason });
+          const closeResult = await closePosition({ position_address: positionAddress, reason: resolved.reason });
           log("state", `[Stop Loss] Direct close succeeded for ${positionAddress}`);
+          if (closeResult?.success && telegramEnabled()) {
+            notifyClose({
+              pair:            closeResult.pool_name || positionAddress.slice(0, 8),
+              pnlUsd:          closeResult.pnl_usd          ?? 0,
+              pnlPct:          closeResult.pnl_pct          ?? 0,
+              feesEarned:      closeResult.fees_earned_usd,
+              reason:          resolved.reason,
+              rangeEfficiency: closeResult.range_efficiency,
+              ageMinutes:      closeResult.age_minutes,
+              deploySol:       closeResult.deploy_sol,
+              depositedUsd:    closeResult.deposited_usd,
+              withdrawnUsd:    closeResult.withdrawn_usd,
+              positionAddress,
+            }).catch(() => {});
+          }
         } catch (closeErr) {
           log("cron_error", `[Stop Loss] Direct close failed for ${positionAddress}: ${closeErr.message} — falling back to management cycle`);
           runManagementCycle({ silent: true }).catch((e) => log("cron_error", `SL recheck management failed: ${e.message}`));
