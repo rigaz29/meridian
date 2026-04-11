@@ -480,7 +480,10 @@ async function runSafetyChecks(name, args) {
         };
       }
 
-      const minDeploy = Math.max(0.1, config.management.deployAmountSol);
+      // autoCompound ignores deployAmountSol as floor — use only the safety minimum
+      const minDeploy = config.management.autoCompound
+        ? 0.1
+        : Math.max(0.1, config.management.deployAmountSol);
       if (amountY < minDeploy) {
         return {
           pass: false,

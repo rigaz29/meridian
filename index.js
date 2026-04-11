@@ -567,8 +567,13 @@ export async function runScreeningCycle({ silent = false } = {}) {
   try {
     // Reuse pre-fetched balance — no extra RPC call needed
     const currentBalance = preBalance;
-    const deployAmount = computeDeployAmount(currentBalance.sol);
-    log("cron", `Computed deploy amount: ${deployAmount} SOL (wallet: ${currentBalance.sol} SOL)`);
+    // Bear mode: wallet funds are mostly in USDC — use total value (SOL + USDC equiv) so
+    // computeDeployAmount sees the real portfolio size, not just the SOL gas reserve.
+    const effectiveSol = (config.management.bearMode && currentBalance.sol_price > 0)
+      ? currentBalance.sol + currentBalance.usdc / currentBalance.sol_price
+      : currentBalance.sol;
+    const deployAmount = computeDeployAmount(effectiveSol);
+    log("cron", `Computed deploy amount: ${deployAmount} SOL (effective: ${effectiveSol.toFixed(3)} SOL, actual SOL: ${currentBalance.sol}${config.management.bearMode ? `, USDC: ${currentBalance.usdc}` : ""})`);
 
     // Load active strategy
     const activeStrategy = getActiveStrategy();
@@ -697,7 +702,7 @@ export async function runScreeningCycle({ silent = false } = {}) {
     const { content } = await agentLoop(`
 SCREENING CYCLE
 ${strategyBlock}
-Positions: ${prePositions.total_positions}/${config.risk.maxPositions} | SOL: ${currentBalance.sol.toFixed(3)} | Deploy: ${deployAmount} SOL
+Positions: ${prePositions.total_positions}/${config.risk.maxPositions} | SOL: ${currentBalance.sol.toFixed(3)}${config.management.bearMode && currentBalance.usdc > 0 ? ` + ${currentBalance.usdc.toFixed(2)} USDC` : ""} | Deploy: ${deployAmount} SOL${config.management.bearMode ? " (bear mode: USDC auto-swaps to SOL before deploy — SOL balance will look low, proceed anyway)" : ""}
 
 PRE-LOADED CANDIDATES (${passing.length} pools):
 ${candidateBlocks.join("\n\n")}
@@ -1395,9 +1400,10 @@ Focus on: hold duration, entry/exit timing, what win rates look like, whether sc
   startPolling(telegramHandler);
   (async () => {
     try {
+      const bearNote = config.management.bearMode ? " (bear mode: USDC counts toward balance — SOL will look low)" : "";
       const startupStep3 = process.env.DRY_RUN === "true"
         ? `3. Ignore wallet SOL threshold in dry run: get_top_candidates then simulate deploy ${DEPLOY} SOL.`
-        : `3. If SOL >= ${config.management.minSolToOpen}: get_top_candidates then deploy ${DEPLOY} SOL.`;
+        : `3. If SOL${bearNote} >= ${config.management.minSolToOpen}: get_top_candidates then deploy ${DEPLOY} SOL.`;
       await agentLoop(`
 STARTUP CHECK
 1. get_wallet_balance. 2. get_my_positions. ${startupStep3} 4. Report.
