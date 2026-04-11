@@ -352,12 +352,26 @@ export async function runManagementCycle({ silent = false } = {}) {
         actionMap.set(p.position, { action: "CLOSE", rule: 3, reason: "pumped far above range" });
         continue;
       }
-      // Rule 4: stale above range
-      if (p.active_bin != null && p.upper_bin != null &&
-          p.active_bin > p.upper_bin &&
-          (p.minutes_out_of_range ?? 0) >= config.management.outOfRangeWaitMinutes) {
-        actionMap.set(p.position, { action: "CLOSE", rule: 4, reason: "OOR" });
-        continue;
+      // Rule 4: stale above range — timeout scales down with volatility (high vol = exit faster)
+      {
+        const vol = tracked?.volatility ?? 1;
+        const effectiveOorWait = Math.round(config.management.outOfRangeWaitMinutes / Math.sqrt(Math.max(1, vol)));
+        if (p.active_bin != null && p.upper_bin != null &&
+            p.active_bin > p.upper_bin &&
+            (p.minutes_out_of_range ?? 0) >= effectiveOorWait) {
+          actionMap.set(p.position, { action: "CLOSE", rule: 4, reason: `upside OOR (${effectiveOorWait}m)` });
+          continue;
+        }
+      }
+      // Rule 4b: downside OOR — close faster, recovery from below range is rare on meme tokens
+      {
+        const downsideWait = config.management.downsideOorWaitMinutes ?? 10;
+        if (p.active_bin != null && p.lower_bin != null &&
+            p.active_bin < p.lower_bin &&
+            (p.minutes_out_of_range ?? 0) >= downsideWait) {
+          actionMap.set(p.position, { action: "CLOSE", rule: "4b", reason: `downside OOR (${downsideWait}m)` });
+          continue;
+        }
       }
       // Rule 5: fee yield too low
       if (p.fee_per_tvl_24h != null &&
@@ -367,10 +381,17 @@ export async function runManagementCycle({ silent = false } = {}) {
         actionMap.set(p.position, { action: "CLOSE", rule: 5, reason: "low yield" });
         continue;
       }
-      // Claim rule
-      if ((p.unclaimed_fees_usd ?? 0) >= config.management.minClaimAmount) {
-        actionMap.set(p.position, { action: "CLAIM" });
-        continue;
+      // Claim rule: absolute threshold OR % of position value (compound lebih sering pada posisi besar)
+      {
+        const unclaimed = p.unclaimed_fees_usd ?? 0;
+        const autoClaimPct = config.management.autoClaimPct ?? 5;
+        const pctTrigger = p.total_value_usd > 0
+          ? (unclaimed / p.total_value_usd) * 100 >= autoClaimPct
+          : false;
+        if (unclaimed >= config.management.minClaimAmount || pctTrigger) {
+          actionMap.set(p.position, { action: "CLAIM" });
+          continue;
+        }
       }
       actionMap.set(p.position, { action: "STAY" });
     }
@@ -601,6 +622,10 @@ export async function runScreeningCycle({ silent = false } = {}) {
       const netBuyers = ti?.stats_1h?.net_buyers;
       const activeBin = activeBinResults[i]?.status === "fulfilled" ? activeBinResults[i].value?.binId : null;
 
+      // Reversal signal: harga turun signifikan + lebih banyak seller = distribusi/dump
+      const reversalRisk = priceChange != null && netBuyers != null &&
+        priceChange < -3 && netBuyers < 0;
+
       // OKX signals
       const okxParts = [
         pool.risk_level     != null ? `risk=${pool.risk_level}`               : null,
@@ -631,6 +656,7 @@ export async function runScreeningCycle({ silent = false } = {}) {
         `  smart_wallets: ${sw?.in_pool?.length ?? 0} present${sw?.in_pool?.length ? ` → CONFIDENCE BOOST (${sw.in_pool.map(w => w.name).join(", ")})` : ""}`,
         activeBin != null ? `  active_bin: ${activeBin}` : null,
         priceChange != null ? `  1h: price${priceChange >= 0 ? "+" : ""}${priceChange}%, net_buyers=${netBuyers ?? "?"}` : null,
+        reversalRisk ? `  ⚠️ REVERSAL RISK: price ${priceChange}%, net_buyers=${netBuyers} — bearish distribution signal, skip unless strong counter-evidence` : null,
         n?.narrative ? `  narrative_untrusted: ${sanitizeUntrustedPromptText(n.narrative, 500)}` : `  narrative_untrusted: none`,
         mem ? `  memory_untrusted: ${sanitizeUntrustedPromptText(mem, 500)}` : null,
       ].filter(Boolean).join("\n");

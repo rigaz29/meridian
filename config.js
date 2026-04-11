@@ -63,7 +63,8 @@ export const config = {
     minClaimAmount:        u.minClaimAmount        ?? 5,
     autoSwapAfterClaim:    u.autoSwapAfterClaim    ?? false,
     outOfRangeBinsToClose: u.outOfRangeBinsToClose ?? 10,
-    outOfRangeWaitMinutes: u.outOfRangeWaitMinutes ?? 30,
+    outOfRangeWaitMinutes:   u.outOfRangeWaitMinutes   ?? 30,
+    downsideOorWaitMinutes:  u.downsideOorWaitMinutes  ?? 10,  // faster exit for downside OOR (recovery rare)
     oorCooldownTriggerCount: u.oorCooldownTriggerCount ?? 3,
     oorCooldownHours:       u.oorCooldownHours       ?? 12,
     minVolumeToRebalance:  u.minVolumeToRebalance  ?? 1000,
@@ -81,6 +82,7 @@ export const config = {
     trailingTriggerPct:    u.trailingTriggerPct    ?? 3,    // activate trailing at X% PnL
     trailingDropPct:       u.trailingDropPct       ?? 1.5,  // close when drops X% from peak
     pnlSanityMaxDiffPct:   u.pnlSanityMaxDiffPct   ?? 5,    // max allowed diff between reported and derived pnl % before ignoring a tick
+    autoClaimPct:          u.autoClaimPct          ?? 5,    // claim when unclaimed fees >= X% of position value
     // SOL mode — positions, PnL, and balances reported in SOL instead of USD
     solMode:               u.solMode               ?? false,
   },

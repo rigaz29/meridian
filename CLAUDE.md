@@ -88,6 +88,8 @@ Sets defined in `agent.js:6-7`. If you add a tool, also add it to the relevant s
 | positionSizePct | management | 0.35 |
 | minSolToOpen | management | 0.55 |
 | outOfRangeWaitMinutes | management | 30 |
+| downsideOorWaitMinutes | management | 10 |
+| autoClaimPct | management | 5 |
 | minAgeBeforeSL | management | 15 |
 | managementIntervalMin | schedule | 10 |
 | screeningIntervalMin | schedule | 30 |
@@ -260,5 +262,4 @@ Not required for normal operation.
 
 ## Known Issues / Tech Debt
 
-- `lessons.js evolveThresholds()` evolves `maxVolatility` + `minFeeTvlRatio` (wrong key names — should be `minFeeActiveTvlRatio`; `maxVolatility` doesn't exist in config at all). The evolution is a no-op for those keys.
 - `get_wallet_positions` tool (dlmm.js) is in definitions.js but not in MANAGER_TOOLS or SCREENER_TOOLS — only available in GENERAL role.
