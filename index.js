@@ -4,7 +4,7 @@ import readline from "readline";
 import { agentLoop } from "./agent.js";
 import { log } from "./logger.js";
 import { getMyPositions, closePosition, getActiveBin } from "./tools/dlmm.js";
-import { getWalletBalances } from "./tools/wallet.js";
+import { getWalletBalances, swapToken } from "./tools/wallet.js";
 import { getTopCandidates } from "./tools/screening.js";
 import { config, reloadScreeningThresholds, computeDeployAmount } from "./config.js";
 import { evolveThresholds, getPerformanceSummary, bootstrapFromHistory } from "./lessons.js";
@@ -20,6 +20,22 @@ import { getTokenNarrative, getTokenInfo } from "./tools/token.js";
 log("startup", "DLMM LP Agent starting...");
 log("startup", `Mode: ${process.env.DRY_RUN === "true" ? "DRY RUN" : "LIVE"}`);
 log("startup", `Model: ${process.env.LLM_MODEL || "hermes-3-405b"}`);
+
+// Auto-swap base token to SOL after direct closes (trailing TP, stop loss, /close command)
+// This mirrors the auto-swap logic in executor.js for LLM-triggered closes.
+async function autoSwapBaseToken(base_mint, context = "") {
+  if (!base_mint) return;
+  try {
+    const balances = await getWalletBalances({});
+    const token = balances.tokens?.find(t => t.mint === base_mint);
+    if (token && token.usd >= 0.10) {
+      log("executor", `[${context}] Auto-swapping ${token.symbol || base_mint.slice(0, 8)} ($${token.usd.toFixed(2)}) back to SOL`);
+      await swapToken({ input_mint: base_mint, output_mint: "SOL", amount: token.balance });
+    }
+  } catch (e) {
+    log("executor_warn", `[${context}] Auto-swap after close failed: ${e.message}`);
+  }
+}
 
 const TP_PCT = config.management.takeProfitFeePct;
 const DEPLOY = config.management.deployAmountSol;
@@ -137,6 +153,9 @@ function scheduleTrailingDropConfirmation(positionAddress) {
               positionAddress,
             }).catch(() => {});
           }
+          if (closeResult?.base_mint) {
+            autoSwapBaseToken(closeResult.base_mint, "Trailing TP").catch(() => {});
+          }
         } catch (closeErr) {
           log("cron_error", `[Trailing TP] Direct close failed for ${positionAddress}: ${closeErr.message} — falling back to management cycle`);
           runManagementCycle({ silent: true }).catch((e) => log("cron_error", `Trailing recheck management failed: ${e.message}`));
@@ -183,6 +202,9 @@ function scheduleStopLossConfirmation(positionAddress) {
               withdrawnUsd:    closeResult.withdrawn_usd,
               positionAddress,
             }).catch(() => {});
+          }
+          if (closeResult?.base_mint) {
+            autoSwapBaseToken(closeResult.base_mint, "Stop Loss").catch(() => {});
           }
         } catch (closeErr) {
           log("cron_error", `[Stop Loss] Direct close failed for ${positionAddress}: ${closeErr.message} — falling back to management cycle`);
@@ -909,6 +931,9 @@ async function telegramHandler(msg) {
           `📋 Tx: <code>${closeTxs?.[0]?.slice(0, 16) ?? "n/a"}...</code>` +
           claimNote
         );
+        if (result.base_mint) {
+          autoSwapBaseToken(result.base_mint, "/close command").catch(() => {});
+        }
       } else {
         await sendHTML(`❌ <b>Close failed</b> — ${pos.pair}\n<code>${JSON.stringify(result).slice(0, 200)}</code>`);
       }

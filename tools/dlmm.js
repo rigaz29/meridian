@@ -871,6 +871,8 @@ export async function closePosition({ position_address, reason }) {
         claim_txs: claimTxHashes,
         close_txs: closeTxHashes,
         txs: txHashes,
+        // Include base_mint so executor can still attempt auto-swap (txs went through)
+        base_mint: pool.lbPair.tokenXMint.toString(),
       };
     }
 

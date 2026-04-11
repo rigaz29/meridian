@@ -412,7 +412,6 @@ export async function notifyClose({
   pair, pnlUsd, pnlPct, feesEarned, reason, rangeEfficiency,
   ageMinutes, deploySol, depositedUsd, withdrawnUsd, positionAddress,
 }) {
-  if (hasActiveLiveMessage()) return;
 
   const profit = Number(pnlUsd ?? 0) >= 0;
   const icon   = profit ? "🟢" : "🔴";
