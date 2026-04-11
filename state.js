@@ -532,8 +532,8 @@ export function updatePnlAndCheckExits(position_address, positionData, mgmtConfi
 
   // ── Low yield (only after position has had time to accumulate fees) ───
   const { age_minutes, unclaimed_fees_usd } = positionData;
-  const minAgeForYieldCheck = mgmtConfig.minAgeBeforeYieldCheck ?? 120;
-  const minFeesForYieldExit = mgmtConfig.minFeesEarnedForYieldExit ?? 0.20;
+  const minAgeForYieldCheck = mgmtConfig.minAgeBeforeYieldCheck;
+  const minFeesForYieldExit = mgmtConfig.minFeesEarnedForYieldExit;
   if (
     fee_per_tvl_24h != null &&
     mgmtConfig.minFeePerTvl24h != null &&

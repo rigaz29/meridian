@@ -72,7 +72,8 @@ export const config = {
     minAgeBeforeSL:        u.minAgeBeforeSL        ?? 15,  // minutes before stop loss can trigger
     takeProfitFeePct:      u.takeProfitFeePct      ?? 5,
     minFeePerTvl24h:       u.minFeePerTvl24h       ?? 7,
-    minAgeBeforeYieldCheck: u.minAgeBeforeYieldCheck ?? 60, // minutes before low yield can trigger close
+    minAgeBeforeYieldCheck:    u.minAgeBeforeYieldCheck    ?? 90,   // minutes before low yield can trigger close
+    minFeesEarnedForYieldExit: u.minFeesEarnedForYieldExit ?? 0.20, // min unclaimed fees (USD) before low yield can trigger close
     minSolToOpen:          u.minSolToOpen          ?? 0.55,
     deployAmountSol:       u.deployAmountSol       ?? 0.5,
     gasReserve:            u.gasReserve            ?? 0.2,
