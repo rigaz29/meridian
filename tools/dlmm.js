@@ -126,18 +126,17 @@ export async function deployPosition({
   const activeStrategy = strategy || config.strategy.strategy;
 
   const vol = (typeof volatility === "number" && volatility >= 0) ? volatility : 2.5;
-  const targetDownside = Math.min(0.42, 0.20 + (vol / 5) * 0.22);  // vol=0→20%, vol=2.5→31%, vol=5→42%
-  const targetUpside   = Math.min(0.25, 0.10 + (vol / 5) * 0.15);  // vol=0→10%, vol=2.5→17.5%, vol=5→25%
-  const hasUpside = activeStrategy === "spot" || activeStrategy === "curve";
+  const targetDownside = Math.min(0.55, 0.25 + (vol / 5) * 0.30);  // vol=0→25%, vol=2.5→40%, vol=5→55%
+  const targetUpside   = Math.min(0.35, 0.15 + (vol / 5) * 0.15);  // vol=0→15%, vol=2.5→22.5%, vol=5→30%
 
   // Preliminary estimate using provided bin_step (used for DRY_RUN and wide-range check)
   const estBinStep = bin_step ?? 100;
   const activeBinsBelow = bins_below != null
     ? bins_below
-    : Math.min(69, calcBinsFromTarget(estBinStep, targetDownside));
+    : calcBinsFromTarget(estBinStep, targetDownside);
   const activeBinsAbove = bins_above != null
     ? bins_above
-    : (hasUpside ? calcBinsFromTarget(estBinStep, targetUpside, true) : 0);
+    : (activeStrategy === "spot" ? calcBinsFromTarget(estBinStep, targetUpside, true) : 0);
 
   if (isPoolOnCooldown(pool_address)) {
     log("deploy", `Pool ${pool_address.slice(0, 8)} is on cooldown — skipping`);
@@ -176,10 +175,10 @@ export async function deployPosition({
   const actualBinStep = pool.lbPair.binStep;
   const finalBinsBelow = bins_below != null
     ? bins_below
-    : Math.min(69, calcBinsFromTarget(actualBinStep, targetDownside));
+    : calcBinsFromTarget(actualBinStep, targetDownside);
   const finalBinsAbove = bins_above != null
     ? bins_above
-    : (hasUpside ? calcBinsFromTarget(actualBinStep, targetUpside, true) : 0);
+    : (activeStrategy === "spot" ? calcBinsFromTarget(actualBinStep, targetUpside, true) : 0);
 
   // Range calculation
   const minBinId = activeBin.binId - finalBinsBelow;
