@@ -64,12 +64,15 @@ export const config = {
     autoSwapAfterClaim:    u.autoSwapAfterClaim    ?? false,
     outOfRangeBinsToClose: u.outOfRangeBinsToClose ?? 10,
     outOfRangeWaitMinutes:   u.outOfRangeWaitMinutes   ?? 30,
-    downsideOorWaitMinutes:  u.downsideOorWaitMinutes  ?? 10,  // faster exit for downside OOR (recovery rare)
+    downsideOorWaitMinutes:  u.downsideOorWaitMinutes  ?? 5,   // faster exit for downside OOR (recovery rare)
     oorCooldownTriggerCount: u.oorCooldownTriggerCount ?? 3,
     oorCooldownHours:       u.oorCooldownHours       ?? 12,
     minVolumeToRebalance:  u.minVolumeToRebalance  ?? 1000,
     stopLossPct:           u.stopLossPct           ?? u.emergencyPriceDropPct ?? -20,
-    minAgeBeforeSL:        u.minAgeBeforeSL        ?? 15,  // minutes before stop loss can trigger
+    minAgeBeforeSL:        u.minAgeBeforeSL        ?? 7,   // minutes before stop loss can trigger
+    priceDropSLPct:        u.priceDropSLPct        ?? -15, // close if token price drops X% from entry bin (fee-independent)
+    pnlVelocitySLPct:      u.pnlVelocitySLPct      ?? 5,   // close if PnL drops X% within velocity window
+    pnlVelocityWindowSec:  u.pnlVelocityWindowSec  ?? 90,  // velocity measurement window in seconds
     takeProfitFeePct:      u.takeProfitFeePct      ?? 5,
     minFeePerTvl24h:       u.minFeePerTvl24h       ?? 7,
     minAgeBeforeYieldCheck:    u.minAgeBeforeYieldCheck    ?? 90,   // minutes before low yield can trigger close

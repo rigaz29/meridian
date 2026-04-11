@@ -488,9 +488,34 @@ export function updatePnlAndCheckExits(position_address, positionData, mgmtConfi
 
   if (changed) save(state);
 
+  // ── Price-drop SL (bin-based, fee-independent) ─────────────────────────
+  if (!pnl_pct_suspicious && mgmtConfig.priceDropSLPct != null) {
+    const deployBin  = pos.active_bin_at_deploy;
+    const binStep    = pos.bin_step;
+    const currentBin = positionData.active_bin;
+    if (deployBin != null && binStep != null && currentBin != null && currentBin < deployBin) {
+      const priceDropPct = (1 - Math.pow(1 + binStep / 10000, currentBin - deployBin)) * 100;
+      const threshold    = Math.abs(mgmtConfig.priceDropSLPct);
+      if (threshold > 0 && priceDropPct >= threshold) {
+        const minAgeForSL = mgmtConfig.minAgeBeforeSL ?? 7;
+        const ageMinutes  = positionData.age_minutes;
+        if (ageMinutes != null && ageMinutes < minAgeForSL) {
+          log("state", `Position ${position_address} price-drop SL skipped — too new (${ageMinutes}m < ${minAgeForSL}m)`);
+        } else {
+          return {
+            action: "STOP_LOSS",
+            reason: `Price-drop SL: token dropped ${priceDropPct.toFixed(1)}% from entry (bin ${deployBin} → ${currentBin})`,
+            needs_confirmation: false,
+            current_pnl_pct: currentPnlPct,
+          };
+        }
+      }
+    }
+  }
+
   // ── Stop loss ──────────────────────────────────────────────────
   if (!pnl_pct_suspicious && currentPnlPct != null && mgmtConfig.stopLossPct != null && currentPnlPct <= mgmtConfig.stopLossPct) {
-    const minAgeForSL = mgmtConfig.minAgeBeforeSL ?? 15;
+    const minAgeForSL = mgmtConfig.minAgeBeforeSL ?? 7;
     const ageMinutes = positionData.age_minutes;
     if (ageMinutes != null && ageMinutes < minAgeForSL) {
       log("state", `Position ${position_address} SL skipped — too new (${ageMinutes}m < ${minAgeForSL}m min age)`);

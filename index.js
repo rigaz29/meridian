@@ -92,6 +92,7 @@ let _pollTriggeredAt = 0; // epoch ms — cooldown for poller-triggered manageme
 const _peakConfirmTimers = new Map();
 const _trailingDropConfirmTimers = new Map();
 const _stopLossConfirmTimers = new Map();
+const _pnlHistory = new Map(); // positionAddress → [{ts, pnl_pct}] — for velocity SL
 const TRAILING_PEAK_CONFIRM_DELAY_MS = 15_000;
 const TRAILING_PEAK_CONFIRM_TOLERANCE = 0.85;
 const TRAILING_DROP_CONFIRM_DELAY_MS = 15_000;
@@ -318,6 +319,22 @@ export async function runManagementCycle({ silent = false } = {}) {
         if (exit.action === "STOP_LOSS" && exit.needs_confirmation) {
           if (queueStopLossConfirmation(p.position, exit.current_pnl_pct)) {
             scheduleStopLossConfirmation(p.position);
+          }
+          continue;
+        }
+        if (exit.action === "STOP_LOSS" && !exit.needs_confirmation) {
+          log("state", `[Price-drop SL] Direct close for ${p.pair}: ${exit.reason}`);
+          _pnlHistory.delete(p.position);
+          try {
+            const closeResult = await closePosition({ position_address: p.position, reason: exit.reason });
+            log("state", `[Price-drop SL] Close succeeded for ${p.position}`);
+            if (telegramEnabled()) {
+              const pnl = closeResult?.pnl_pct != null ? closeResult.pnl_pct.toFixed(2) : "?";
+              sendMessage(`🛑 <b>Price-drop SL</b> — ${p.pair}\nPnL: <code>${pnl}%</code>\n${exit.reason}`).catch(() => {});
+            }
+          } catch (closeErr) {
+            log("cron_error", `[Price-drop SL] Direct close failed for ${p.position}: ${closeErr.message} — falling back to LLM`);
+            exitMap.set(p.position, exit.reason);
           }
           continue;
         }
@@ -825,7 +842,50 @@ Summarize the current portfolio health, total fees earned, and performance of al
     try {
       const result = await getMyPositions({ force: true, silent: true }).catch(() => null);
       if (!result?.positions?.length) return;
+
+      // Clean up pnl history for positions no longer open
+      const _activePositionSet = new Set(result.positions.map(p => p.position));
+      for (const addr of _pnlHistory.keys()) {
+        if (!_activePositionSet.has(addr)) _pnlHistory.delete(addr);
+      }
+
       for (const p of result.positions) {
+        // ── Velocity SL: detect rapid PnL freefall ─────────────────────
+        if (!p.pnl_pct_suspicious && p.pnl_pct != null) {
+          const now = Date.now();
+          const windowMs = (config.management.pnlVelocityWindowSec ?? 90) * 1000;
+          const hist = _pnlHistory.get(p.position) || [];
+          const trimmed = hist.filter(h => now - h.ts < windowMs * 2);
+          trimmed.push({ ts: now, pnl_pct: p.pnl_pct });
+          _pnlHistory.set(p.position, trimmed);
+
+          const velocityThreshold = config.management.pnlVelocitySLPct ?? 5;
+          const minAge = config.management.minAgeBeforeSL ?? 7;
+          const windowStart = now - windowMs;
+          const oldest = trimmed.find(h => h.ts >= windowStart);
+          if (velocityThreshold > 0 && oldest && oldest !== trimmed[trimmed.length - 1] && (p.age_minutes ?? 0) >= minAge) {
+            const drop = oldest.pnl_pct - p.pnl_pct;
+            if (drop >= velocityThreshold) {
+              const windowSec = Math.round((now - oldest.ts) / 1000);
+              const reason = `Velocity SL: PnL dropped ${drop.toFixed(2)}% in ${windowSec}s (${oldest.pnl_pct.toFixed(2)}% → ${p.pnl_pct.toFixed(2)}%)`;
+              log("state", `[Velocity SL] ${p.pair}: ${reason}`);
+              _pnlHistory.delete(p.position);
+              try {
+                const closeResult = await closePosition({ position_address: p.position, reason });
+                log("state", `[Velocity SL] Close succeeded for ${p.position}`);
+                if (telegramEnabled()) {
+                  const pnl = closeResult?.pnl_pct != null ? closeResult.pnl_pct.toFixed(2) : "?";
+                  sendMessage(`⚡ <b>Velocity SL</b> — ${p.pair}\nPnL: <code>${pnl}%</code>\n${reason}`).catch(() => {});
+                }
+              } catch (closeErr) {
+                log("cron_error", `[Velocity SL] Direct close failed for ${p.position}: ${closeErr.message} — triggering management`);
+                runManagementCycle({ silent: true }).catch((e) => log("cron_error", `Velocity SL management failed: ${e.message}`));
+              }
+              continue;
+            }
+          }
+        }
+
         if (!p.pnl_pct_suspicious && queuePeakConfirmation(p.position, p.pnl_pct)) {
           schedulePeakConfirmation(p.position);
         }
@@ -840,6 +900,22 @@ Summarize the current portfolio health, total fees earned, and performance of al
           if (exit.action === "STOP_LOSS" && exit.needs_confirmation) {
             if (queueStopLossConfirmation(p.position, exit.current_pnl_pct)) {
               scheduleStopLossConfirmation(p.position);
+            }
+            continue;
+          }
+          if (exit.action === "STOP_LOSS" && !exit.needs_confirmation) {
+            log("state", `[Price-drop SL] Direct close in poller for ${p.pair}: ${exit.reason}`);
+            _pnlHistory.delete(p.position);
+            try {
+              const closeResult = await closePosition({ position_address: p.position, reason: exit.reason });
+              log("state", `[Price-drop SL] Close succeeded for ${p.position}`);
+              if (telegramEnabled()) {
+                const pnl = closeResult?.pnl_pct != null ? closeResult.pnl_pct.toFixed(2) : "?";
+                sendMessage(`🛑 <b>Price-drop SL</b> — ${p.pair}\nPnL: <code>${pnl}%</code>\n${exit.reason}`).catch(() => {});
+              }
+            } catch (closeErr) {
+              log("cron_error", `[Price-drop SL] Direct close failed for ${p.position}: ${closeErr.message} — triggering management`);
+              runManagementCycle({ silent: true }).catch((e) => log("cron_error", `Price-drop SL management failed: ${e.message}`));
             }
             continue;
           }

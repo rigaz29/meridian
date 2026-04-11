@@ -91,9 +91,12 @@ Sets defined in `agent.js:6-7`. If you add a tool, also add it to the relevant s
 | autoCompoundFeePct | management | 0.02 |
 | bearMode | management | false |
 | outOfRangeWaitMinutes | management | 30 |
-| downsideOorWaitMinutes | management | 10 |
+| downsideOorWaitMinutes | management | 5 |
 | autoClaimPct | management | 5 |
-| minAgeBeforeSL | management | 15 |
+| minAgeBeforeSL | management | 7 |
+| priceDropSLPct | management | -15 |
+| pnlVelocitySLPct | management | 5 |
+| pnlVelocityWindowSec | management | 90 |
 | managementIntervalMin | schedule | 10 |
 | screeningIntervalMin | schedule | 30 |
 | managementModel / screeningModel / generalModel | llm | openrouter/healer-alpha |
