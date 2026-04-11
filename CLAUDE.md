@@ -157,17 +157,29 @@ Before `deploy_position` executes:
 
 ---
 
-## bins_below Calculation (SCREENER)
+## bins_below / bins_above Calculation (dlmm.js)
 
-Linear formula based on pool volatility (set in screener prompt, `index.js`):
+Geometric formula using volatility-adjusted price targets, capped at 69 bins:
 
 ```
-bins_below = round(35 + (volatility / 5) * 34), clamped to [35, 69]
+targetDownside = min(0.42, 0.20 + (vol/5) * 0.22)  // vol=0→20%, vol=2.5→31%, vol=5→42%
+targetUpside   = min(0.25, 0.10 + (vol/5) * 0.15)  // vol=0→10%, vol=2.5→17.5%, vol=5→25%
+
+bins_below = min(69, ceil( |log(1 - targetDownside)| / log(1 + binStep/10000) ))
+bins_above = ceil( log(1 + targetUpside) / log(1 + binStep/10000) )  -- only for spot/curve
 ```
 
-- Low volatility (0) → 35 bins
-- High volatility (5+) → 69 bins
-- Any value in between is valid (continuous, not tiered)
+Example at binStep=100:
+
+| vol | bins_below | bins_above (spot/curve) |
+|-----|-----------|------------------------|
+| 0   | 22        | 10                     |
+| 2.5 | 37        | 18                     |
+| 5   | 55        | 28                     |
+
+**Strategy → bins_above:**
+- `curve`, `spot` → bins_above calculated (upside coverage included)
+- `bid_ask` → bins_above = 0 (one-sided downside position)
 
 ---
 
