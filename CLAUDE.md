@@ -101,9 +101,9 @@ Sets defined in `agent.js:6-7`. If you add a tool, also add it to the relevant s
 | screeningIntervalMin | schedule | 30 |
 | managementModel / screeningModel / generalModel | llm | openrouter/healer-alpha |
 
-**`computeDeployAmount(walletSol)`** — scales position size with wallet balance. Two modes:
+**`computeDeployAmount(walletSol, openPositionsValueSol=0)`** — scales position size with wallet balance. Two modes:
 - `autoCompound=false` (default): `clamp(deployable × positionSizePct, floor=deployAmountSol, ceil=maxDeployAmount)` where `deployable = walletSol - gasReserve`
-- `autoCompound=true`: `clamp(deployable × positionSizePct, floor=0, ceil=maxDeployAmount)` where `deployable = walletSol × (1 - autoCompoundFeePct)` — amount grows/shrinks with wallet automatically, `deployAmountSol` is ignored
+- `autoCompound=true`: `clamp(deployable × positionSizePct, floor=0, ceil=maxDeployAmount)` where `deployable = (walletSol + openPositionsValueSol) × (1 - autoCompoundFeePct)` — scales with **total portfolio** (free SOL + locked positions), not just free wallet. `deployAmountSol` is ignored. Executor safety check still caps actual deploy to available free SOL.
 
 ---
 

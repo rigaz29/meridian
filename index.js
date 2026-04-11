@@ -589,8 +589,18 @@ export async function runScreeningCycle({ silent = false } = {}) {
     const effectiveSol = (config.management.bearMode && currentBalance.sol_price > 0)
       ? currentBalance.sol + currentBalance.usdc / currentBalance.sol_price
       : currentBalance.sol;
-    const deployAmount = computeDeployAmount(effectiveSol);
-    log("cron", `Computed deploy amount: ${deployAmount} SOL (effective: ${effectiveSol.toFixed(3)} SOL, actual SOL: ${currentBalance.sol}${config.management.bearMode ? `, USDC: ${currentBalance.usdc}` : ""})`);
+    // autoCompound: include locked position value so sizing is proportional to full portfolio.
+    // Uses cached positions (no extra RPC call) — falls back to 0 if unavailable.
+    let openPositionsValueSol = 0;
+    if (config.management.autoCompound && currentBalance.sol_price > 0) {
+      const cachedPos = await getMyPositions({ force: false, silent: true }).catch(() => null);
+      openPositionsValueSol = (cachedPos?.positions || []).reduce((sum, p) => {
+        const usd = p.total_value_true_usd;
+        return usd != null ? sum + usd / currentBalance.sol_price : sum;
+      }, 0);
+    }
+    const deployAmount = computeDeployAmount(effectiveSol, openPositionsValueSol);
+    log("cron", `Computed deploy amount: ${deployAmount} SOL (wallet: ${effectiveSol.toFixed(3)} SOL${openPositionsValueSol > 0 ? `, positions: ${openPositionsValueSol.toFixed(3)} SOL` : ""}${config.management.bearMode ? `, USDC: ${currentBalance.usdc}` : ""})`);
 
     // Load active strategy
     const activeStrategy = getActiveStrategy();

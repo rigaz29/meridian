@@ -137,26 +137,33 @@ export const config = {
  *   deployable = walletSol - reserve
  *   result    = clamp(deployable × positionSizePct, floor=deployAmountSol, ceil=maxDeployAmount)
  *
- * autoCompound=true (percentage-based, no fixed floor):
- *   reserve   = walletSol × autoCompoundFeePct (default 2%)
- *   deployable = walletSol - reserve
+ * autoCompound=true (portfolio-aware, no fixed floor):
+ *   totalPortfolio = walletSol + openPositionsValueSol
+ *   reserve   = totalPortfolio × autoCompoundFeePct (default 2%)
+ *   deployable = totalPortfolio - reserve
  *   result    = clamp(deployable × positionSizePct, floor=0, ceil=maxDeployAmount)
- *   → deploy amount grows/shrinks proportionally with wallet — no manual adjustment needed
+ *   → deploy amount scales with the FULL portfolio (free + locked), not just free wallet
+ *   → actual deploy is capped by executor safety check (amount_y + gasReserve ≤ free SOL)
  *
- * Examples at autoCompound=true (positionSizePct=0.35, feePct=0.02):
- *   1.0 SOL wallet → 0.34 SOL deploy  (0.02 reserved)
- *   2.0 SOL wallet → 0.69 SOL deploy  (0.04 reserved)
- *   5.0 SOL wallet → 1.71 SOL deploy  (0.10 reserved)
+ * @param {number} walletSol              Free SOL in wallet
+ * @param {number} [openPositionsValueSol=0]  Total value of open LP positions in SOL equiv
+ *                                         (autoCompound mode only — ignored in fixed-floor mode)
+ *
+ * Examples at autoCompound=true (positionSizePct=0.35, feePct=0.02, 1 open position = 1.0 SOL):
+ *   1.0 SOL wallet → total 2.0 SOL → 0.69 SOL deploy
+ *   2.0 SOL wallet → total 3.0 SOL → 1.03 SOL deploy
+ *   5.0 SOL wallet → total 6.0 SOL → 2.06 SOL deploy
  */
-export function computeDeployAmount(walletSol) {
+export function computeDeployAmount(walletSol, openPositionsValueSol = 0) {
   const m    = config.management;
   const ceil = config.risk.maxDeployAmount;
 
   if (m.autoCompound) {
-    const feePct     = m.autoCompoundFeePct ?? 0.02;
-    const reserve    = walletSol * feePct;
-    const deployable = Math.max(0, walletSol - reserve);
-    const dynamic    = deployable * (m.positionSizePct ?? 0.35);
+    const feePct        = m.autoCompoundFeePct ?? 0.02;
+    const totalPortfolio = walletSol + openPositionsValueSol;
+    const reserve       = totalPortfolio * feePct;
+    const deployable    = Math.max(0, totalPortfolio - reserve);
+    const dynamic       = deployable * (m.positionSizePct ?? 0.35);
     return parseFloat(Math.min(ceil, dynamic).toFixed(2));
   }
 
