@@ -425,16 +425,22 @@ All fields are optional — defaults shown. Edit `user-config.json`.
 
 | Field | Default | Description |
 |---|---|---|
-| `deployAmountSol` | `0.5` | Base SOL per new position (floor) |
-| `positionSizePct` | `0.35` | Fraction of deployable balance to use |
+| `deployAmountSol` | `0.5` | Base SOL per new position — floor in fixed mode, ignored when `autoCompound=true` |
+| `positionSizePct` | `0.35` | Fraction of deployable portfolio per position |
 | `maxDeployAmount` | `50` | Maximum SOL cap per position |
-| `gasReserve` | `0.2` | Minimum SOL to keep for gas |
+| `gasReserve` | `0.2` | Minimum SOL to keep for gas (fixed mode only) |
 | `minSolToOpen` | `0.55` | Minimum wallet SOL before opening new position |
 | `maxPositions` | `3` | Maximum concurrent open positions |
+| `autoCompound` | `false` | Portfolio-aware sizing — deploy amount scales with total portfolio (free SOL + locked positions). `deployAmountSol` floor is ignored. |
+| `autoCompoundFeePct` | `0.02` | Reserve X% of total portfolio for tx fees in autoCompound mode |
+| `bearMode` | `false` | Swap excess SOL → USDC after close/claim; auto-swap back before deploy. Protects against SOL depreciation. |
 | `outOfRangeWaitMinutes` | `30` | Minutes OOR (upside) before closing |
-| `downsideOorWaitMinutes` | `10` | Minutes OOR (downside) before closing — faster, recovery is rare |
-| `stopLossPct` | `-20` | Close if PnL drops below this % |
-| `minAgeBeforeSL` | `15` | Minutes before stop loss can trigger |
+| `downsideOorWaitMinutes` | `5` | Minutes OOR (downside) before closing — fast exit, recovery from below range is rare |
+| `stopLossPct` | `-20` | Close if PnL drops below this % (with 15s confirmation to filter data glitches) |
+| `priceDropSLPct` | `-15` | Close immediately if token price drops X% from entry bin — fee-independent, bypasses LLM |
+| `pnlVelocitySLPct` | `5` | Close if PnL drops X% within the velocity window — catches freefalls before hitting `stopLossPct` |
+| `pnlVelocityWindowSec` | `90` | Rolling window in seconds for velocity SL measurement |
+| `minAgeBeforeSL` | `7` | Minutes before any stop loss can trigger |
 | `takeProfitFeePct` | `5` | Close when unclaimed fees reach X% of position value |
 | `trailingTakeProfit` | `true` | Enable trailing take-profit |
 | `trailingTriggerPct` | `3` | Activate trailing at X% PnL |
@@ -443,7 +449,8 @@ All fields are optional — defaults shown. Edit `user-config.json`.
 | `autoSwapAfterClaim` | `false` | Swap base token to SOL after claiming |
 | `solMode` | `false` | Report positions and PnL in SOL instead of USD |
 | `minFeePerTvl24h` | `7` | Minimum fee yield % per 24h before yield check can trigger close |
-| `minAgeBeforeYieldCheck` | `60` | Minutes before low yield can trigger close |
+| `minAgeBeforeYieldCheck` | `90` | Minutes before low yield can trigger close |
+| `minFeesEarnedForYieldExit` | `0.20` | Minimum unclaimed fees (USD) before low yield close can trigger |
 
 ### Strategy
 
@@ -489,6 +496,76 @@ Automatically tracks which screening signals predict profitable positions and ad
 | `darwinFloor` | `0.3` | Minimum signal weight |
 | `darwinCeiling` | `2.5` | Maximum signal weight |
 | `darwinMinSamples` | `10` | Minimum positions before adjusting a signal's weight |
+
+---
+
+## Exit system
+
+Meridian uses multiple layers of protection running in parallel. The 30-second PnL poller checks all layers between management cycles — exits fire immediately without waiting for the next scheduled cycle.
+
+### Stop loss layers (priority order)
+
+| Layer | Trigger | Confirmation | Mechanism |
+|---|---|---|---|
+| **Price-drop SL** | Token price drops ≥ `priceDropSLPct` (15%) from entry bin | None — direct close | Computed from active bin delta, independent of fees earned |
+| **Velocity SL** | PnL drops ≥ `pnlVelocitySLPct` (5%) within `pnlVelocityWindowSec` (90s) | None — direct close | In-memory history in 30s poller; catches freefalls before hitting absolute SL |
+| **PnL SL** | `pnl_pct ≤ stopLossPct` (-20%) | 15s recheck — cancels if PnL recovers | Catches slow bleed that price-drop SL misses |
+
+**Why price-drop SL fires first:** PnL includes earned fees, so a token that crashed 20% but earned 8% in fees shows only -12% PnL. Price-drop SL detects the crash regardless.
+
+All stop losses respect `minAgeBeforeSL` (7 min) to avoid false triggers on fresh positions where PnL data may be unstable.
+
+### Take-profit layers
+
+| Layer | Trigger | Notes |
+|---|---|---|
+| **Trailing TP** | PnL activates at `trailingTriggerPct` (3%), closes when drops `trailingDropPct` (1.5%) from confirmed peak | Suppresses static TP once active |
+| **Static TP** | `unclaimed fees ≥ takeProfitFeePct` (5%) of position value | Acts as ceiling before trailing activates |
+
+### OOR exits
+
+| Rule | Trigger |
+|---|---|
+| Upside OOR | Active bin > upper bin for `outOfRangeWaitMinutes` (30m), scaled down by volatility |
+| Downside OOR | Active bin < lower bin for `downsideOorWaitMinutes` (5m) — faster because recovery is rare |
+| Far above range | Active bin > upper bin + `outOfRangeBinsToClose` — closes immediately, no wait |
+
+---
+
+## Auto-compound mode
+
+When `autoCompound: true`, position sizing scales with your **total portfolio** — free wallet SOL plus the value locked in open positions — rather than just the free wallet balance.
+
+```
+totalPortfolio = walletSol + openPositionsValueSol
+deployable     = totalPortfolio × (1 - autoCompoundFeePct)
+deployAmount   = clamp(deployable × positionSizePct, 0, maxDeployAmount)
+```
+
+Example with 2.75 SOL free and 0.95 SOL locked in one position:
+
+| Mode | Basis | Deploy (positionSizePct=0.35) |
+|---|---|---|
+| Fixed (`autoCompound=false`) | 2.75 SOL free | 0.95 SOL |
+| Portfolio-aware (`autoCompound=true`) | 3.70 SOL total | 1.27 SOL |
+
+The executor safety check still prevents deploying more than available free SOL — the computed amount is an intent, not an override.
+
+---
+
+## Bear mode
+
+When `bearMode: true`, Meridian keeps profits in USDC instead of SOL to protect against SOL price depreciation.
+
+**After `close_position` or `claim_fees`:**
+- Base token → SOL (normal swap)
+- Excess SOL → USDC (keeps `gasReserve` in SOL for gas)
+- Minimum sweep: 0.05 SOL — smaller amounts skipped to avoid tx fees
+
+**Before `deploy_position`:**
+- If SOL balance is insufficient, auto-swaps USDC → SOL (just enough to cover deploy + gasReserve, with 2% slippage buffer)
+
+**Screening:** accepts combined SOL + USDC value as available balance, so low SOL doesn't block new deploys when USDC is available.
 
 ---
 
