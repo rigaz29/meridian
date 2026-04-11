@@ -87,6 +87,8 @@ Sets defined in `agent.js:6-7`. If you add a tool, also add it to the relevant s
 | gasReserve | management | 0.2 |
 | positionSizePct | management | 0.35 |
 | minSolToOpen | management | 0.55 |
+| autoCompound | management | false |
+| autoCompoundFeePct | management | 0.02 |
 | outOfRangeWaitMinutes | management | 30 |
 | downsideOorWaitMinutes | management | 10 |
 | autoClaimPct | management | 5 |
@@ -95,7 +97,9 @@ Sets defined in `agent.js:6-7`. If you add a tool, also add it to the relevant s
 | screeningIntervalMin | schedule | 30 |
 | managementModel / screeningModel / generalModel | llm | openrouter/healer-alpha |
 
-**`computeDeployAmount(walletSol)`** — scales position size with wallet balance (compounding). Formula: `clamp(deployable × positionSizePct, floor=deployAmountSol, ceil=maxDeployAmount)`.
+**`computeDeployAmount(walletSol)`** — scales position size with wallet balance. Two modes:
+- `autoCompound=false` (default): `clamp(deployable × positionSizePct, floor=deployAmountSol, ceil=maxDeployAmount)` where `deployable = walletSol - gasReserve`
+- `autoCompound=true`: `clamp(deployable × positionSizePct, floor=0, ceil=maxDeployAmount)` where `deployable = walletSol × (1 - autoCompoundFeePct)` — amount grows/shrinks with wallet automatically, `deployAmountSol` is ignored
 
 ---
 

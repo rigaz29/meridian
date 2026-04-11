@@ -77,6 +77,8 @@ export const config = {
     deployAmountSol:       u.deployAmountSol       ?? 0.5,
     gasReserve:            u.gasReserve            ?? 0.2,
     positionSizePct:       u.positionSizePct       ?? 0.35,
+    autoCompound:          u.autoCompound          ?? false,   // scale deploy amount from wallet balance (no fixed floor)
+    autoCompoundFeePct:    u.autoCompoundFeePct    ?? 0.02,   // reserve X% of wallet for tx fees (default 2%)
     // Trailing take-profit
     trailingTakeProfit:    u.trailingTakeProfit    ?? true,
     trailingTriggerPct:    u.trailingTriggerPct    ?? 3,    // activate trailing at X% PnL
@@ -122,25 +124,44 @@ export const config = {
 
 /**
  * Compute the optimal deploy amount for a given wallet balance.
- * Scales position size with wallet growth (compounding).
  *
- * Formula: clamp(deployable × positionSizePct, floor=deployAmountSol, ceil=maxDeployAmount)
+ * Two modes:
  *
- * Examples (defaults: gasReserve=0.2, positionSizePct=0.35, floor=0.5):
- *   0.8 SOL wallet → 0.6 SOL deploy  (floor)
- *   2.0 SOL wallet → 0.63 SOL deploy
- *   3.0 SOL wallet → 0.98 SOL deploy
- *   4.0 SOL wallet → 1.33 SOL deploy
+ * autoCompound=false (default — fixed floor):
+ *   reserve   = gasReserve (fixed SOL)
+ *   deployable = walletSol - reserve
+ *   result    = clamp(deployable × positionSizePct, floor=deployAmountSol, ceil=maxDeployAmount)
+ *
+ * autoCompound=true (percentage-based, no fixed floor):
+ *   reserve   = walletSol × autoCompoundFeePct (default 2%)
+ *   deployable = walletSol - reserve
+ *   result    = clamp(deployable × positionSizePct, floor=0, ceil=maxDeployAmount)
+ *   → deploy amount grows/shrinks proportionally with wallet — no manual adjustment needed
+ *
+ * Examples at autoCompound=true (positionSizePct=0.35, feePct=0.02):
+ *   1.0 SOL wallet → 0.34 SOL deploy  (0.02 reserved)
+ *   2.0 SOL wallet → 0.69 SOL deploy  (0.04 reserved)
+ *   5.0 SOL wallet → 1.71 SOL deploy  (0.10 reserved)
  */
 export function computeDeployAmount(walletSol) {
-  const reserve  = config.management.gasReserve      ?? 0.2;
-  const pct      = config.management.positionSizePct ?? 0.35;
-  const floor    = config.management.deployAmountSol;
-  const ceil     = config.risk.maxDeployAmount;
+  const m    = config.management;
+  const ceil = config.risk.maxDeployAmount;
+
+  if (m.autoCompound) {
+    const feePct     = m.autoCompoundFeePct ?? 0.02;
+    const reserve    = walletSol * feePct;
+    const deployable = Math.max(0, walletSol - reserve);
+    const dynamic    = deployable * (m.positionSizePct ?? 0.35);
+    return parseFloat(Math.min(ceil, dynamic).toFixed(2));
+  }
+
+  // Fixed-floor mode (legacy default)
+  const reserve    = m.gasReserve      ?? 0.2;
+  const pct        = m.positionSizePct ?? 0.35;
+  const floor      = m.deployAmountSol;
   const deployable = Math.max(0, walletSol - reserve);
   const dynamic    = deployable * pct;
-  const result     = Math.min(ceil, Math.max(floor, dynamic));
-  return parseFloat(result.toFixed(2));
+  return parseFloat(Math.min(ceil, Math.max(floor, dynamic)).toFixed(2));
 }
 
 /**

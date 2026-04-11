@@ -181,6 +181,8 @@ const toolMap = {
       deployAmountSol: ["management", "deployAmountSol"],
       gasReserve: ["management", "gasReserve"],
       positionSizePct: ["management", "positionSizePct"],
+      autoCompound: ["management", "autoCompound"],
+      autoCompoundFeePct: ["management", "autoCompoundFeePct"],
       // risk
       maxPositions: ["risk", "maxPositions"],
       maxDeployAmount: ["risk", "maxDeployAmount"],
