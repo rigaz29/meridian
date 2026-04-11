@@ -1,548 +1,694 @@
 # Meridian
 
-**Autonomous Meteora DLMM liquidity management agent for Solana, powered by LLMs.**
+**Autonomous AI-driven DLMM liquidity provider for Meteora on Solana.**
 
-Meridian runs continuous screening and management cycles, deploying capital into high-quality Meteora DLMM pools and closing positions based on live PnL, yield, and range data. It learns from every position it closes.
-
----
-
-## What it does
-
-- **Screens pools** — scans Meteora DLMM pools against configurable thresholds (fee/TVL ratio, organic score, holder count, mcap, bin step) and surfaces high-quality opportunities
-- **Manages positions** — monitors, claims fees, and closes LP positions autonomously; decides to STAY, CLOSE, or REDEPLOY based on live data
-- **Learns from performance** — studies top LPers in target pools, saves structured lessons, and evolves screening thresholds based on closed position history
-- **Discord signals** — optional Discord listener watches LP Army channels for Solana token calls and queues them for screening
-- **Telegram chat** — full agent chat via Telegram, plus cycle reports and OOR alerts
-- **Claude Code integration** — run AI-powered screening and management directly from your terminal using Claude Code slash commands
+Meridian deploys capital into Meteora Dynamic Liquidity Market Maker (DLMM) pools, monitors positions in real time, and exits them based on a deterministic rule engine — bypassing the LLM for time-critical actions. An LLM agent (via OpenRouter or any OpenAI-compatible endpoint) handles pool screening, conviction scoring, and edge-case management decisions that cannot be reduced to simple rules.
 
 ---
 
-## How it works
+## Target Users
 
-Meridian runs a **ReAct agent loop** — each cycle the LLM reasons over live data, calls tools, and acts. Two specialized agents run on independent cron schedules:
-
-| Agent | Default interval | Role |
-|---|---|---|
-| **Screening Agent** | Every 30 min | Pool screening — finds and deploys into the best candidate |
-| **Management Agent** | Every 10 min | Position management — evaluates each open position and acts |
-
-**Data sources:**
-- `@meteora-ag/dlmm` SDK — on-chain position data, active bin, deploy/close transactions
-- Meteora DLMM PnL API — position yield, fee accrual, PnL
-- OKX OnchainOS — smart money signals, token risk scoring
-- Pool screening API — fee/TVL ratios, volume, organic scores, holder counts
-- Jupiter API — token audit, mcap, launchpad, price stats
-
-Agents are powered via **OpenRouter** and can be swapped for any compatible model.
+- Solana traders who want automated, compounding LP positions
+- Quant developers building on top of Meteora's DLMM SDK
+- DeFi operators running unattended liquidity strategies with risk controls
 
 ---
 
-## Requirements
+## Table of Contents
 
-- Node.js 18+
-- [OpenRouter](https://openrouter.ai) API key
-- Solana wallet (base58 private key)
-- Solana RPC endpoint ([Helius](https://helius.xyz) recommended)
-- Telegram bot token (optional)
-- [Claude Code](https://claude.ai/code) CLI (optional, for terminal slash commands)
-
----
-
-## Setup
-
-### 1. Clone & install
-
-```bash
-git clone https://github.com/yunus-0x/meridian
-cd meridian
-npm install
-```
-
-### 2. Run the setup wizard
-
-```bash
-npm run setup
-```
-
-The wizard walks you through creating `.env` (API keys, wallet, RPC, Telegram) and `user-config.json` (risk preset, deploy size, thresholds, models). Takes about 2 minutes.
-
-**Or set up manually:**
-
-Create `.env`:
-
-```env
-WALLET_PRIVATE_KEY=your_base58_private_key
-RPC_URL=https://mainnet.helius-rpc.com/?api-key=YOUR_KEY
-OPENROUTER_API_KEY=sk-or-...
-HELIUS_API_KEY=your_helius_key          # for wallet balance lookups
-TELEGRAM_BOT_TOKEN=123456:ABC...        # optional — for notifications + chat
-TELEGRAM_CHAT_ID=                       # auto-filled on first message
-DRY_RUN=true                            # set false for live trading
-```
-
-> Never put your private key or API keys in `user-config.json` — use `.env` only. Both files are gitignored.
-
-Copy config and edit as needed:
-
-```bash
-cp user-config.example.json user-config.json
-```
-
-See [Config reference](#config-reference) below.
-
-### 3. Run
-
-```bash
-npm run dev    # dry run — no on-chain transactions
-npm start      # live mode
-```
-
-On startup Meridian fetches your wallet balance, open positions, and top pool candidates, then begins autonomous cycles immediately.
+1. [Core Strategy](#core-strategy)
+2. [Architecture](#architecture)
+3. [Tech Stack](#tech-stack)
+4. [Setup & Installation](#setup--installation)
+5. [Environment Variables](#environment-variables)
+6. [Usage](#usage)
+7. [CLI Reference](#cli-reference)
+8. [Configuration](#configuration)
+9. [Key Modules](#key-modules)
+10. [Automation Logic](#automation-logic)
+11. [Exit Mechanics](#exit-mechanics)
+12. [Learning System](#learning-system)
+13. [Telegram Integration](#telegram-integration)
+14. [Safety & Risk Warning](#safety--risk-warning)
+15. [Troubleshooting](#troubleshooting)
+16. [Changelog](#changelog)
 
 ---
 
-## Running modes
+## Core Strategy
 
-### Autonomous agent
+### Pool Selection
 
-```bash
-npm start
-```
+The SCREENER agent queries the Meteora Pool Discovery API and the OKX smart-money signal feed, then applies hard filters before the LLM ever sees a candidate:
 
-Starts the full autonomous agent with cron-based screening + management cycles and an interactive REPL. The prompt shows a live countdown to the next cycle:
+| Filter | Default |
+|--------|---------|
+| TVL window | $10k – $150k |
+| Volume (per timeframe) | ≥ $500 |
+| Organic score | ≥ 60 |
+| Token holders | ≥ 500 |
+| Market cap | $150k – $10M |
+| Bin step | 80 – 125 |
+| Fee/active-TVL ratio | ≥ 0.05% |
+| Min global fees paid | ≥ 30 SOL (bundler/scam filter) |
+| Max bot holders | ≤ 30% (Jupiter audit) |
+| Max top-10 concentration | ≤ 60% |
+| Blocked launchpads | configurable list |
+| Cooldown pools/mints | checked before deploy |
 
-```
-[manage: 8m 12s | screen: 24m 3s]
->
-```
+Blacklisted tokens (`token-blacklist.json`) and blocked deployers (`deployer-blacklist.json`) are stripped before candidates reach the LLM.
 
-REPL commands:
+The LLM then scores remaining candidates on narrative quality, smart-wallet presence, and OKX token tags (`dev_sold_all`, `smart_money_buy`, `is_honeypot`, `wash_trading`, etc.) to select one pool for deployment.
 
-| Command | Description |
-|---|---|
-| `/status` | Wallet balance and open positions |
-| `/candidates` | Re-screen and display top pool candidates |
-| `/learn` | Study top LPers across all current candidate pools |
-| `/learn <pool_address>` | Study top LPers for a specific pool |
-| `/thresholds` | Current screening thresholds and performance stats |
-| `/evolve` | Trigger threshold evolution from performance data (needs 5+ closed positions) |
-| `/stop` | Graceful shutdown |
-| `<anything>` | Free-form chat — ask the agent anything, request actions, analyze pools |
+### Liquidity Placement
 
----
-
-### Claude Code terminal (recommended)
-
-Install [Claude Code](https://claude.ai/code) and use it from inside the meridian directory. Claude Code has built-in agents and slash commands that use the `meridian` CLI under the hood.
-
-```bash
-cd meridian
-claude
-```
-
-#### Slash commands
-
-| Command | What it does |
-|---|---|
-| `/screen` | Full AI screening cycle — checks Discord queue, reads config, fetches candidates, runs deep research, and deploys if a winner is found |
-| `/manage` | Full AI management cycle — checks all positions, evaluates PnL, claims fees, closes OOR/losing positions |
-| `/balance` | Check wallet SOL and token balances |
-| `/positions` | List all open DLMM positions with range status |
-| `/candidates` | Fetch and enrich top pool candidates (pool metrics + token audit + smart money) |
-| `/study-pool` | Study top LPers on a specific pool |
-| `/pool-ohlcv` | Fetch price/volume history for a pool |
-| `/pool-compare` | Compare all Meteora DLMM pools for a token pair by APR, fee/TVL ratio, and volume |
-
-#### Claude Code agents
-
-Two specialized sub-agents run inside Claude Code:
-
-**`screener`** — pool screening specialist. Invoke when you want to evaluate candidates, analyse token risk, or deploy a position. Has access to OKX smart money signals, full token audit pipeline, and all strategy logic.
-
-**`manager`** — position management specialist. Invoke when reviewing open positions, assessing PnL, claiming fees, or closing positions.
-
-To trigger an agent directly, just describe what you want:
-```
-> screen for new pools and deploy if you find something good
-> review all my positions and close anything out of range
-> what do you think of the SOL/BONK pool?
-```
-
-#### Loop mode
-
-Run screening or management on a timer inside Claude Code:
+Positions use **volatility-adaptive bin ranges** computed at deploy time:
 
 ```
-/loop 30m /screen     # screen every 30 minutes
-/loop 10m /manage     # manage every 10 minutes
+targetDownside = clamp(0.25 + (volatility / 5) × 0.30, max=0.55)
+targetUpside   = clamp(0.15 + (volatility / 5) × 0.15, max=0.35)  [spot only]
+
+bins = ceil(|log(1 ± targetPct)| / log(1 + binStep / 10000))
 ```
 
----
+- `volatility = 0` → downside coverage ~25% price drop (~35 bins below)
+- `volatility = 5` → downside coverage ~55% price drop (~69 bins below)
+- `bid_ask` strategy sets `bins_above = 0` (directional, no upside liquidity wasted)
+- `spot` strategy places symmetric liquidity above and below
 
-### CLI (direct tool invocation)
+**Strategy selection** (LLM decision, with defaults):
 
-The `meridian` CLI gives you direct access to every tool with JSON output — useful for scripting, debugging, or piping into other tools.
+| Signal | Strategy |
+|--------|----------|
+| `smart_money_buy` tag OR `price_change > 0` with net buyers | `bid_ask` |
+| Token age < 48h with strong narrative | `bid_ask` |
+| Range-bound volume, no directional signal | `spot` |
+| Default when ambiguous | `bid_ask` |
 
-```bash
-npm install -g .   # install globally (once)
-meridian <command> [flags]
+### Position Sizing
+
+Position size scales with wallet balance (compounding formula):
+
+```
+deployable   = walletSOL − gasReserve
+dynamic      = deployable × positionSizePct
+deployAmount = clamp(dynamic, floor=deployAmountSol, ceil=maxDeployAmount)
 ```
 
-Or run without installing:
-
-```bash
-node cli.js <command> [flags]
-```
-
-**Positions & PnL**
-
-```bash
-meridian positions
-meridian pnl <position_address>
-meridian wallet-positions --wallet <addr>
-```
-
-**Screening**
-
-```bash
-meridian candidates --limit 5
-meridian pool-detail --pool <addr> [--timeframe 5m]
-meridian active-bin --pool <addr>
-meridian search-pools --query <name_or_symbol>
-meridian study --pool <addr> [--limit 4]
-```
-
-**Token research**
-
-```bash
-meridian token-info --query <mint_or_symbol>
-meridian token-holders --mint <addr> [--limit 20]
-meridian token-narrative --mint <addr>
-```
-
-**Deploy & manage**
-
-```bash
-meridian deploy --pool <addr> --amount <sol> [--bins-below 69] [--bins-above 0] [--strategy bid_ask|spot|curve] [--dry-run]
-meridian claim --position <addr>
-meridian close --position <addr> [--skip-swap] [--dry-run]
-meridian swap --from <mint> --to <mint> --amount <n> [--dry-run]
-meridian add-liquidity --position <addr> --pool <addr> [--amount-x <n>] [--amount-y <n>] [--strategy spot]
-meridian withdraw-liquidity --position <addr> --pool <addr> [--bps 10000]
-```
-
-**Agent cycles**
-
-```bash
-meridian screen [--dry-run] [--silent]   # one AI screening cycle
-meridian manage [--dry-run] [--silent]   # one AI management cycle
-meridian start [--dry-run]               # start autonomous agent with cron jobs
-```
-
-**Config**
-
-```bash
-meridian config get
-meridian config set <key> <value>
-```
-
-**Learning & memory**
-
-```bash
-meridian lessons
-meridian lessons add "your lesson text"
-meridian performance [--limit 200]
-meridian evolve
-meridian pool-memory --pool <addr>
-```
-
-**Blacklist**
-
-```bash
-meridian blacklist list
-meridian blacklist add --mint <addr> --reason "reason"
-```
-
-**Discord signals**
-
-```bash
-meridian discord-signals
-meridian discord-signals clear
-```
-
-**Balance**
-
-```bash
-meridian balance
-```
-
-**Flags**
-
-| Flag | Effect |
-|---|---|
-| `--dry-run` | Skip all on-chain transactions |
-| `--silent` | Suppress Telegram notifications for this run |
-
----
-
-## Discord listener
-
-The Discord listener watches configured channels (e.g. LP Army) for Solana token calls and queues them as signals for the screener agent.
-
-### Setup
-
-```bash
-cd discord-listener
-npm install
-```
-
-Add to your root `.env`:
-
-```env
-DISCORD_USER_TOKEN=your_discord_account_token   # from browser DevTools → Network
-DISCORD_GUILD_ID=the_server_id
-DISCORD_CHANNEL_IDS=channel1,channel2            # comma-separated
-DISCORD_MIN_FEES_SOL=5                           # minimum pool fees to pass pre-check
-```
-
-> This uses a selfbot (personal account automation, not a bot token). Use responsibly.
-
-### Run
-
-```bash
-cd discord-listener
-npm start
-```
-
-Or run it in a separate terminal alongside the main agent. Signals are written to `discord-signals.json` and picked up automatically by `/screen` and `node cli.js screen`.
-
-### Signal pipeline
-
-Each incoming token address passes through a pre-check pipeline before being queued:
-1. **Dedup** — ignores addresses seen in the last 10 minutes
-2. **Blacklist** — rejects blacklisted token mints
-3. **Pool resolution** — resolves the address to a Meteora DLMM pool
-4. **Rug check** — checks deployer against `deployer-blacklist.json`
-5. **Fees check** — rejects pools below `DISCORD_MIN_FEES_SOL`
-
-Signals that pass all checks are queued with status `pending`. The screener picks up pending signals and processes them as priority candidates before running the normal screening cycle.
-
-### Deployer blacklist
-
-Add known rug/farm deployer wallet addresses to `deployer-blacklist.json`:
-
-```json
-{
-  "_note": "Known farm/rug deployers — add addresses to auto-reject their pools",
-  "addresses": [
-    "WaLLeTaDDressHere"
-  ]
-}
-```
-
----
-
-## Telegram
-
-### Setup
-
-1. Create a bot via [@BotFather](https://t.me/BotFather) and copy the token
-2. Add `TELEGRAM_BOT_TOKEN=<token>` to your `.env`
-3. Start the agent, then send any message to your bot — it auto-registers your chat ID
-
-### Notifications
-
-Meridian sends notifications automatically for:
-- Management cycle reports (reasoning + decisions)
-- Screening cycle reports (what it found, whether it deployed)
-- OOR alerts when a position leaves range past `outOfRangeWaitMinutes`
-- Deploy: pair, amount, position address, tx hash
-- Close: pair and PnL
-
-### Telegram commands
-
-| Command | Action |
-|---|---|
-| `/positions` | List open positions with progress bar |
-| `/close <n>` | Close position by list index |
-| `/set <n> <note>` | Set a note on a position |
-
-You can also chat freely via Telegram using the same interface as the REPL.
-
----
-
-## Config reference
-
-All fields are optional — defaults shown. Edit `user-config.json`.
-
-### Screening
-
-| Field | Default | Description |
-|---|---|---|
-| `minFeeActiveTvlRatio` | `0.05` | Minimum fee/active-TVL ratio |
-| `minTvl` | `10000` | Minimum pool TVL (USD) |
-| `maxTvl` | `150000` | Maximum pool TVL (USD) |
-| `minVolume` | `500` | Minimum pool volume |
-| `minOrganic` | `60` | Minimum organic score (0–100) |
-| `minHolders` | `500` | Minimum token holder count |
-| `minMcap` | `150000` | Minimum market cap (USD) |
-| `maxMcap` | `10000000` | Maximum market cap (USD) |
-| `minBinStep` | `80` | Minimum bin step |
-| `maxBinStep` | `125` | Maximum bin step |
-| `timeframe` | `5m` | Candle timeframe for screening |
-| `category` | `trending` | Pool category filter |
-| `minTokenFeesSol` | `30` | Minimum all-time fees in SOL |
-| `maxBundlersPct` | `30` | Maximum bundler % in top 100 holders |
-| `maxTop10Pct` | `60` | Maximum top-10 holder concentration |
-| `blockedLaunchpads` | `[]` | Launchpad names to never deploy into |
-
-### Management
-
-| Field | Default | Description |
-|---|---|---|
-| `deployAmountSol` | `0.5` | Base SOL per new position |
-| `positionSizePct` | `0.35` | Fraction of deployable balance to use |
-| `maxDeployAmount` | `50` | Maximum SOL cap per position |
-| `gasReserve` | `0.2` | Minimum SOL to keep for gas |
-| `minSolToOpen` | `0.55` | Minimum wallet SOL before opening |
-| `outOfRangeWaitMinutes` | `30` | Minutes upside OOR before close (scales down with volatility) |
-| `downsideOorWaitMinutes` | `10` | Minutes downside OOR before close (faster — recovery is rare) |
-| `autoClaimPct` | `5` | Auto-claim when unclaimed fees ≥ X% of position value |
-| `stopLossPct` | `-15` | Close position if price drops by this % |
-
-### Schedule
-
-| Field | Default | Description |
-|---|---|---|
-| `managementIntervalMin` | `10` | Management cycle frequency (minutes) |
-| `screeningIntervalMin` | `30` | Screening cycle frequency (minutes) |
-
-### Models
-
-| Field | Default | Description |
-|---|---|---|
-| `managementModel` | `openai/gpt-oss-20b:free` | LLM for management cycles |
-| `screeningModel` | `openai/gpt-oss-20b:free` | LLM for screening cycles |
-| `generalModel` | `openai/gpt-oss-20b:free` | LLM for REPL / chat |
-
-> Override model at runtime: `node cli.js config set screeningModel anthropic/claude-opus-4-5`
-
----
-
-## How it learns
-
-### Lessons
-
-After every closed position the agent runs `studyTopLPers` on candidate pools, analyzes on-chain behavior of top performers (hold duration, entry/exit timing, win rates), and saves concrete lessons. Lessons are injected into subsequent agent cycles as part of the system context.
-
-Add a lesson manually:
-```bash
-node cli.js lessons add "Never deploy into pump.fun tokens under 2h old"
-```
-
-### Threshold evolution
-
-After 5+ positions have been closed, run:
-```bash
-node cli.js evolve
-```
-
-This analyzes closed position performance (win rate, avg PnL, fee yields) and automatically adjusts screening thresholds in `user-config.json`. Changes take effect immediately.
-
----
-
-## Hive Mind (optional)
-
-Opt-in collective intelligence — share lessons and pool outcomes, receive crowd wisdom from other Meridian agents.
-
-**What you get:** Pool consensus ("8 agents deployed here, 72% win rate"), strategy rankings, threshold medians.
-
-**What you share:** Lessons, deploy outcomes, screening thresholds. No wallet addresses, private keys, or balances are ever sent.
-
-### Setup
-
-```bash
-node -e "import('./hive-mind.js').then(m => m.register('https://meridian-hive-api-production.up.railway.app', 'YOUR_TOKEN'))"
-```
-
-Get `YOUR_TOKEN` from the private Telegram discussion. This saves your credentials to `user-config.json` automatically.
-
-### Disable
-
-```json
-{
-  "hiveMindUrl": "",
-  "hiveMindApiKey": ""
-}
-```
-
-### Self-hosting
-
-See [meridian-hive](https://github.com/fciaf420/meridian-hive) for the server source.
-
----
-
-## Using a local model (LM Studio)
-
-```env
-LLM_BASE_URL=http://localhost:1234/v1
-LLM_API_KEY=lm-studio
-LLM_MODEL=your-local-model-name
-```
-
-Any OpenAI-compatible endpoint works.
+Defaults: `gasReserve=0.2`, `positionSizePct=0.35`, `floor=0.5 SOL`, `ceil=50 SOL`.
+
+Example progression: 0.8 SOL wallet → 0.5 SOL deploy (floor) | 2.0 SOL wallet → 0.63 SOL | 4.0 SOL wallet → 1.33 SOL.
+
+### Management Rules (Deterministic, No LLM)
+
+Every management cycle evaluates each open position against ordered rules:
+
+| Priority | Rule | Condition |
+|----------|------|-----------|
+| 0 | **Instruction** | Position has a custom instruction — passed to LLM for evaluation |
+| 1 | **Hard exit** | Trailing TP or stop-loss confirmed (see [Exit Mechanics](#exit-mechanics)) |
+| 2 | **Static TP** | `pnl_pct ≥ takeProfitFeePct` AND trailing TP not yet active |
+| 3 | **Pumped OOR** | `active_bin > upper_bin + outOfRangeBinsToClose` |
+| 4 | **Upside OOR timeout** | Above range for `outOfRangeWaitMinutes / √volatility` minutes |
+| 4b | **Downside OOR timeout** | Below range for `downsideOorWaitMinutes` minutes (default 10m) |
+| 5 | **Low yield** | `fee_per_tvl_24h < minFeePerTvl24h` after minimum age |
+| — | **Auto-claim** | `unclaimed_fees_usd ≥ minClaimAmount` OR `≥ autoClaimPct%` of position value |
+| — | **STAY** | None of the above — hold |
+
+Positions with suspicious PnL (API returning −99% while value is non-zero) are excluded from PnL rules to prevent false stop-loss triggers.
 
 ---
 
 ## Architecture
 
 ```
-index.js            Main entry: REPL + cron orchestration + Telegram bot polling
-agent.js            ReAct loop: LLM → tool call → repeat
-config.js           Runtime config from user-config.json + .env
-prompt.js           System prompt builder (SCREENER / MANAGER / GENERAL roles)
-state.js            Position registry (state.json)
-lessons.js          Learning engine: records performance, derives lessons, evolves thresholds
-pool-memory.js      Per-pool deploy history + snapshots
-strategy-library.js Saved LP strategies
-telegram.js         Telegram bot: polling + notifications
-hive-mind.js        Optional collective intelligence server sync
-smart-wallets.js    KOL/alpha wallet tracker
-token-blacklist.js  Permanent token blacklist
-cli.js              Direct CLI — every tool as a subcommand with JSON output
+┌──────────────────────────────────────────────────────────────────────┐
+│  index.js — Orchestrator                                             │
+│  REPL + cron manager + Telegram polling + direct exit handlers       │
+│                                                                      │
+│  ┌─────────────────┐         ┌──────────────────────────────────┐   │
+│  │ Management cron │         │ Screening cron                   │   │
+│  │ every N min     │         │ every M min (or triggered after  │   │
+│  │ (default 10m)   │         │ management when no positions)    │   │
+│  └────────┬────────┘         └─────────────────┬────────────────┘   │
+│           │                                    │                     │
+│           ▼                                    ▼                     │
+│  ┌──────────────────────────────────────────────────────────────┐   │
+│  │  agent.js — ReAct Loop                                       │   │
+│  │  buildSystemPrompt() → LLM → tool_calls → executeTool()      │   │
+│  │  → repeat until final answer or maxSteps reached             │   │
+│  └──────────────┬───────────────────────────────────────────────┘   │
+│                 │ tool calls                                         │
+│  ┌──────────────▼───────────────────────────────────────────────┐   │
+│  │  tools/executor.js — Tool Dispatcher                         │   │
+│  │  Safety checks → toolMap[name]() → post-hooks (swap, notify) │   │
+│  └──┬─────────┬──────────┬──────────┬──────────┬───────────────┘   │
+│     │         │          │          │          │                     │
+│  dlmm.js  screening.js  wallet.js  token.js  study.js               │
+│  (on-chain) (API)     (Jupiter)  (Jupiter) (LPAgent)                │
+│                                                                      │
+│  state.js          pool-memory.js     lessons.js                    │
+│  (position registry) (per-pool history) (learning engine)           │
+└──────────────────────────────────────────────────────────────────────┘
+```
 
-tools/
-  definitions.js    Tool schemas (OpenAI format)
-  executor.js       Tool dispatch + safety checks
-  dlmm.js           Meteora DLMM SDK wrapper
-  screening.js      Pool discovery
-  wallet.js         SOL/token balances + Jupiter swap
-  token.js          Token info, holders, narrative
-  study.js          Top LPer study via LPAgent API
+### Data Flow
 
-discord-listener/
-  index.js          Selfbot Discord listener
-  pre-checks.js     Signal pre-check pipeline
+```
+Market data (Meteora API + OKX)
+    → Pool Discovery API (hard filtering)
+    → getTopCandidates() (condensed for LLM)
+    → LLM scoring + parallel tool calls
+        (getTokenHolders, checkSmartWalletsOnPool, getTokenNarrative, getPoolDetail)
+    → deploy_position() with safety checks
+    → trackPosition() in state.js
+    → Telegram deploy notification
 
-.claude/
-  agents/
-    screener.md     Claude Code screener sub-agent
-    manager.md      Claude Code manager sub-agent
-  commands/
-    screen.md       /screen slash command
-    manage.md       /manage slash command
-    balance.md      /balance slash command
-    positions.md    /positions slash command
-    candidates.md   /candidates slash command
-    study-pool.md   /study-pool slash command
-    pool-ohlcv.md   /pool-ohlcv slash command
-    pool-compare.md /pool-compare slash command
+Management cycle (cron):
+    getMyPositions() → getPositionPnl()
+    → deterministic rule engine (JS, no LLM)
+    → LLM agent for INSTRUCTION-type positions only
+    → close_position() / claim_fees()
+    → autoSwapBaseToken() (Jupiter)
+    → recordPerformance() → evolveThresholds()
+    → Telegram close notification
 ```
 
 ---
 
-## Disclaimer
+## Tech Stack
 
-This software is provided as-is, with no warranty. Running an autonomous trading agent carries real financial risk — you can lose funds. Always start with `DRY_RUN=true` to verify behavior before going live. Never deploy more capital than you can afford to lose. This is not financial advice.
+| Component | Library / Service |
+|-----------|-------------------|
+| Runtime | Node.js ≥ 18 (ESM) |
+| DLMM SDK | `@meteora-ag/dlmm` 1.9.4 |
+| Solana RPC | `@solana/web3.js` ^1.95 |
+| Token/SPL | `@solana/spl-token` ^0.3.11 |
+| LLM client | `openai` ^4.73 (OpenAI-compatible) |
+| LLM provider | OpenRouter (default), MiniMax, LM Studio |
+| Scheduling | `node-cron` ^3 |
+| Swaps | Jupiter V6 API |
+| Pool data | Meteora Pool Discovery API, datapi.jup.ag |
+| Smart money | OKX advanced-info API |
+| LP study | LPAgent API |
+| Notifications | Telegram Bot API (long polling) |
+| Encoding | `bs58`, `bn.js` |
+| JSON repair | `jsonrepair` |
 
-The authors are not responsible for any losses incurred through use of this software.
+---
+
+## Setup & Installation
+
+### Requirements
+
+- Node.js ≥ 18.0.0
+- A funded Solana wallet (private key in base58 or JSON array format)
+- A Solana RPC endpoint (Helius recommended)
+- An LLM API key (OpenRouter, MiniMax, or any OpenAI-compatible provider)
+
+### Install
+
+```bash
+git clone <repo-url> meridian
+cd meridian
+npm install
+```
+
+### Configure
+
+```bash
+cp user-config.example.json user-config.json
+# Edit user-config.json with your RPC URL, LLM key, and model
+```
+
+At minimum, set:
+- `rpcUrl` — your Solana RPC endpoint
+- `llmApiKey` — your LLM API key
+- `llmModel` — model to use (e.g. `minimax/minimax-m2.7`, `openrouter/healer-alpha`)
+
+Alternatively, create a `.env` file with `WALLET_PRIVATE_KEY`, `RPC_URL`, and `OPENROUTER_API_KEY`.
+
+### Interactive Setup (optional)
+
+```bash
+npm run setup
+```
+
+Walks through wallet and config setup interactively.
+
+---
+
+## Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `WALLET_PRIVATE_KEY` | **Yes** | Base58 or JSON array Solana private key |
+| `RPC_URL` | **Yes** | Solana RPC endpoint |
+| `OPENROUTER_API_KEY` | Yes* | LLM API key for OpenRouter |
+| `LLM_API_KEY` | Yes* | Generic LLM API key (overrides provider-specific keys) |
+| `LLM_BASE_URL` | No | Override LLM endpoint (e.g. `http://localhost:1234/v1` for LM Studio) |
+| `LLM_MODEL` | No | Override default model |
+| `MINIMAX_API_KEY` | No | MiniMax-specific API key |
+| `TELEGRAM_BOT_TOKEN` | No | Telegram bot token for notifications and commands |
+| `TELEGRAM_CHAT_ID` | No | Telegram chat/channel ID to send messages to |
+| `TELEGRAM_ALLOWED_USER_IDS` | No | Comma-separated Telegram user IDs allowed to send commands |
+| `DRY_RUN` | No | Set to `true` to simulate all actions (no on-chain transactions) |
+| `HIVE_MIND_URL` | No | Hive Mind collective intelligence server URL |
+| `HIVE_MIND_API_KEY` | No | Hive Mind authentication token |
+| `HELIUS_API_KEY` | No | Helius API key for enhanced wallet balance data |
+
+\* One LLM key is required. Priority: `LLM_API_KEY` → `MINIMAX_API_KEY` → `OPENROUTER_API_KEY`.
+
+All variables can alternatively be specified in `user-config.json` (fields: `rpcUrl`, `walletKey`, `llmApiKey`, `llmBaseUrl`, `llmModel`, `minimaxApiKey`, `dryRun`).
+
+---
+
+## Usage
+
+### Run the Bot (Live)
+
+```bash
+npm start
+# or
+node index.js
+```
+
+Starts the REPL, management cron, screening cron, and Telegram polling (if configured).
+
+### Dry-Run Mode
+
+```bash
+npm run dev
+# or
+DRY_RUN=true node index.js
+```
+
+All on-chain transactions are simulated — deploy, close, claim, and swap calls return mock responses without touching the chain.
+
+### REPL
+
+Once running, the interactive REPL accepts natural-language commands:
+
+```
+[manage: 8m 12s | screen: 22m 5s]
+> deploy 0.5 SOL into the best trending pool
+> close all positions
+> show my positions and PnL
+> claim fees
+> set config maxPositions 5
+> what's my balance?
+> show performance history
+> add a lesson: avoid pools where top 10 holders > 50%
+```
+
+The agent detects intent and routes to the appropriate tool subset automatically.
+
+---
+
+## CLI Reference
+
+The `meridian` CLI provides direct tool access for scripting and automation:
+
+```bash
+# Commands
+meridian balance                              # Wallet balances (JSON)
+meridian positions                            # Open DLMM positions (JSON)
+meridian pnl <position_address>               # PnL for a specific position
+meridian screen [--dry-run] [--silent]        # Run one AI screening cycle
+meridian manage [--dry-run] [--silent]        # Run one AI management cycle
+meridian deploy \
+  --pool <address> \
+  --amount <sol> \
+  [--strategy bid_ask|spot] \
+  [--bins-below 69] \
+  [--bins-above 0] \
+  [--dry-run]
+meridian claim --position <address>
+meridian close --position <address>
+meridian swap --from <mint> --to <mint> --amount <n>
+meridian config get
+meridian config set <key> <value>
+```
+
+All output is JSON to stdout. Errors are JSON to stderr with exit code 1.
+
+Config data dir: `~/.meridian/` (env file and config loaded from here when installed globally).
+
+---
+
+## Configuration
+
+All keys live in `user-config.json` and take effect immediately via the `update_config` tool — no restart required. Cron intervals restart automatically when schedule keys change.
+
+### Screening Parameters
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `minFeeActiveTvlRatio` | `0.05` | Min fee/active-TVL ratio (already in % form — 0.05 = 0.05%) |
+| `minTvl` / `maxTvl` | `10000` / `150000` | TVL range (USD) |
+| `minVolume` | `500` | Min volume (USD) per timeframe window |
+| `minOrganic` | `60` | Min organic score (0–100) |
+| `minHolders` | `500` | Min token holder count |
+| `minMcap` / `maxMcap` | `150000` / `10000000` | Market cap range (USD) |
+| `minBinStep` / `maxBinStep` | `80` / `125` | Allowed DLMM bin step range |
+| `timeframe` | `"5m"` | Metric window (`5m`, `15m`, `1h`, `2h`, `4h`, `24h`) |
+| `category` | `"trending"` | Pool discovery category |
+| `minTokenFeesSol` | `30` | Min global fees paid by the token (SOL) — low = likely bundled launch |
+| `maxBundlePct` | `30` | Max bundle holding % (OKX) |
+| `maxBotHoldersPct` | `30` | Max bot holder addresses % (Jupiter audit) |
+| `maxTop10Pct` | `60` | Max top-10 holder concentration |
+| `blockedLaunchpads` | `[]` | Launchpad hostnames to skip (e.g. `["pump.fun"]`) |
+| `minTokenAgeHours` | `null` | Min token age in hours (`null` = no limit) |
+| `maxTokenAgeHours` | `null` | Max token age in hours (`null` = no limit) |
+| `athFilterPct` | `null` | Only deploy if price ≥ X% below ATH (e.g. `-20`) |
+
+### Management Parameters
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `deployAmountSol` | `0.5` | Floor for position size (SOL) |
+| `maxDeployAmount` | `50` | Ceiling for position size (SOL) |
+| `positionSizePct` | `0.35` | Fraction of deployable balance per position |
+| `gasReserve` | `0.2` | SOL reserved for gas (never deployed) |
+| `maxPositions` | `3` | Max concurrent open positions |
+| `minSolToOpen` | `0.55` | Minimum wallet SOL to open a new position |
+| `takeProfitFeePct` | `5` | Static take-profit threshold (% PnL) |
+| `trailingTakeProfit` | `true` | Enable trailing take-profit |
+| `trailingTriggerPct` | `3` | PnL % at which trailing TP activates |
+| `trailingDropPct` | `1.5` | Close when PnL drops this % below confirmed peak |
+| `stopLossPct` | `-20` | Stop-loss threshold (% PnL) |
+| `minAgeBeforeSL` | `15` | Minutes before stop loss can trigger |
+| `outOfRangeWaitMinutes` | `30` | Minutes before closing an upside OOR position |
+| `downsideOorWaitMinutes` | `10` | Minutes before closing a downside OOR position |
+| `outOfRangeBinsToClose` | `10` | Bins above upper bin to trigger immediate close |
+| `autoClaimPct` | `5` | Auto-claim when unclaimed fees ≥ X% of position value |
+| `minClaimAmount` | `5` | Absolute unclaimed fee threshold (USD) |
+| `minFeePerTvl24h` | `7` | Min fee yield % per TVL per 24h before low-yield exit |
+| `minAgeBeforeYieldCheck` | `60` | Minutes before low-yield exit rule can trigger |
+| `solMode` | `false` | Report PnL and balances in SOL instead of USD |
+
+### Schedule Parameters
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `managementIntervalMin` | `10` | Management cron interval (minutes) |
+| `screeningIntervalMin` | `30` | Screening cron interval (minutes) |
+| `healthCheckIntervalMin` | `60` | Health-check cron interval (minutes) |
+
+The agent auto-adjusts `managementIntervalMin` after each deploy based on pool volatility:
+- `volatility ≥ 5` → 3 minutes
+- `volatility 2–5` → 5 minutes
+- `volatility < 2` → 10 minutes
+
+### LLM Parameters
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `managementModel` | provider default | Model for MANAGER role |
+| `screeningModel` | provider default | Model for SCREENER role |
+| `generalModel` | provider default | Model for GENERAL/REPL role |
+| `temperature` | `0.373` | LLM sampling temperature |
+| `maxTokens` | `4096` | Max output tokens per LLM call (minimum 2048 for reliable tool use) |
+| `maxSteps` | `20` | Max ReAct loop iterations per agent invocation |
+
+---
+
+## Key Modules
+
+### `index.js` — Orchestrator
+
+- Starts and manages `node-cron` jobs for management, screening, and briefing cycles
+- Hosts the interactive REPL with live countdown display (`[manage: 8m 12s | screen: 22m 5s]`)
+- Runs the Telegram bot polling loop and command router
+- Contains all **direct (non-LLM) exit handlers**: trailing TP, stop loss, and Telegram `/close` command
+- Implements a 15-second reconfirmation delay for trailing TP and stop-loss exits to filter transient API noise
+- Guards against concurrent cycles with `_managementBusy` / `_screeningBusy` mutex flags
+
+### `agent.js` — ReAct Loop
+
+Implements the core reasoning loop:
+1. Build system prompt with live wallet state, open positions, learned lessons, and performance summary
+2. Send to LLM with role-filtered tool list
+3. Execute tool calls in parallel
+4. Feed results back into the message thread
+5. Repeat until the model returns a final text answer or `maxSteps` is exhausted
+
+Key safety guards:
+- `ONCE_PER_SESSION`: `deploy_position`, `swap_token`, `close_position` can only fire once per agent invocation
+- `NO_RETRY_TOOLS`: `deploy_position` is locked after the first attempt regardless of outcome
+- Malformed tool call JSON is auto-repaired via `jsonrepair` before being pushed to message history
+- Models rejecting `tool_choice: "required"` fall back to `"auto"` automatically
+- Models rejecting the `system` role have instructions embedded in the user message instead
+
+### `tools/dlmm.js` — Meteora DLMM Wrapper
+
+- `deployPosition()` — creates DLMM position with volatility-computed bin range, chosen strategy, and SOL/token amounts; reads `baseFactor` from pool params to compute actual base fee
+- `closePosition()` — withdraws all liquidity and collects fees; triggers `recordPerformance()`
+- `claimFees()` — collects accumulated swap fees without closing the position
+- `getMyPositions()` — all open positions with PnL, range status, and OOR duration
+- `getPositionPnl()` — detailed PnL breakdown for one position
+- `getActiveBin()` — current active bin ID and price for a pool
+
+Implementation notes:
+- Pool objects are cached for 5 minutes to reduce RPC overhead
+- DLMM SDK is lazy-loaded (dynamic `import()`) to avoid ESM/CJS incompatibilities at startup
+- Dry-run mode returns a complete mock response without touching the RPC
+
+### `tools/executor.js` — Tool Dispatcher
+
+Routes LLM tool calls to implementations and enforces pre-conditions.
+
+**Deploy safety checks (hard-blocked, not LLM-overridable):**
+- `bin_step` within `[minBinStep, maxBinStep]`
+- Position count below `maxPositions` (force-fresh scan, bypasses cache)
+- No duplicate pool address or duplicate base token already in portfolio
+- SOL balance covers `amount_y + gasReserve` (skipped for token-X-only deploys)
+- Pool and base-mint cooldown checks from `pool-memory.js`
+
+**Post-close hooks (always fire on successful close):**
+- Auto-swap base token → SOL via Jupiter if USD value ≥ $0.10
+- Send Telegram close notification with full enriched data
+- Call `recordPerformance()` for the learning system
+
+### `prompt.js` — System Prompt Builder
+
+Constructs role-specific prompts injected at the start of each agent invocation:
+
+- **SCREENER**: Candidate evaluation rubric, hard filters, strategy selection matrix, deploy rules, lessons
+- **MANAGER**: Position management rules, yield-health checks, bias-to-hold guidance, gas-efficiency rules, lessons
+- **GENERAL**: Full tool access, parallel-fetch rules, override-by-user-instruction rule, anti-hallucination constraints
+
+All prompts include: live portfolio state, open positions, current config, and injected lessons.
+
+### `state.js` — Position Registry
+
+Persists position metadata to `state.json` (atomic write via temp file + rename):
+- Deployment parameters: strategy, bin range, amounts, volatility, fee/TVL ratio, organic score
+- OOR tracking: first-OOR timestamp and cumulative duration
+- Trailing TP state: `trailing_active`, `peak_pnl_pct`, `confirmed_trailing_exit_until`
+- Stop-loss state: pending confirmation queue
+- Per-position instructions (for conditional exits set via REPL or Telegram `/set`)
+
+### `lessons.js` — Learning Engine
+
+Records closed-position performance and evolves screening thresholds:
+
+- `recordPerformance()` — called after every close; calculates PnL %, range efficiency (`minutes_in_range / minutes_held`), enriches with Meteora API data; sanity-filters absurd records (−90%+ PnL without stop-loss reason)
+- `getLessonsForPrompt({ agentType })` — formats top lessons (pinned first, then by recency) for system prompt injection
+- `evolveThresholds()` — adjusts `minFeeActiveTvlRatio`, `minHolders`, `minMcap`, `minTvl` toward winner-profile medians; requires ≥ 5 closed positions; max change per step: 20%
+
+**Known limitation**: `evolveThresholds()` internally references `maxVolatility` and `minFeeTvlRatio` keys that do not exist in `config.js` — those two evolution paths are currently no-ops.
+
+### `signal-weights.js` — Darwinian Signal Weighting
+
+Tracks which screening signals actually predict profitable positions and adjusts their weights accordingly:
+
+- Tracked signals: `organic_score`, `fee_tvl_ratio`, `volume`, `mcap`, `holder_count`, `smart_wallets_present`, `narrative_quality`, `study_win_rate`, `hive_consensus`, `volatility`
+- Winners boost signal weights by `darwinBoost` (default ×1.05); losers decay by `darwinDecay` (default ×0.95)
+- Weights clamped to `[darwinFloor, darwinCeiling]` = `[0.3, 2.5]`
+- Recalculated every `darwinRecalcEvery` closed positions (default every 5)
+- Injected into the system prompt so the LLM can weight higher-scoring signals more heavily
+
+### `pool-memory.js` — Per-Pool History
+
+Tracks deploy history, snapshots, and cooldowns per pool address (`pool-memory.json`):
+- Cooldown system: pools/mints that triggered OOR closes `oorCooldownTriggerCount` times enter an `oorCooldownHours`-long cooldown
+- Per-pool snapshots used as recall context in SCREENER decisions
+- `recallForPool()` returns a summary that is prepended to the management task goal
+
+### `smart-wallets.js` — KOL/Alpha Wallet Tracker
+
+Maintains a curated list of "smart wallets" (KOL/alpha traders). `checkSmartWalletsOnPool()` checks whether any tracked wallets hold the token — a strong bullish signal that can override weak narrative scores and is the only valid override for an OKX rugpull flag.
+
+### `hive-mind.js` — Collective Intelligence (Optional)
+
+When `HIVE_MIND_URL` and `HIVE_MIND_API_KEY` are set, syncs lessons and deploy decisions to a shared server and queries for consensus patterns across multiple agent instances. Not required for single-instance operation.
+
+---
+
+## Automation Logic
+
+### Cron Schedule
+
+| Job | Default Interval | Notes |
+|-----|-----------------|-------|
+| Management cycle | Every 10 min | Tightens to 3–5 min after volatile deploy |
+| Screening cycle | Every 30 min | Also triggered immediately when no positions open |
+| Morning briefing | Daily at 01:00 UTC | Missed briefings sent on startup |
+| PnL health check | Every 60 min | Separate lightweight check |
+
+### Mutual Exclusion
+
+- `_managementBusy` and `_screeningBusy` flags prevent overlapping cron invocations
+- `_screeningLastTriggered` prevents management from triggering screening more than once per 5 minutes
+- `ONCE_PER_SESSION` blocks duplicate deploys/closes within a single agent session
+- `deploy_position` safety check uses `force: true` on `getMyPositions()` to bypass position cache
+
+---
+
+## Exit Mechanics
+
+### Static Take-Profit
+
+Fires when `pnl_pct ≥ takeProfitFeePct` (default 5%) **and** trailing TP has not yet activated. Once trailing TP activates, static TP is suppressed — trailing handles all exits from that point forward.
+
+### Trailing Take-Profit
+
+1. PnL reaches `trailingTriggerPct` (default 3%) → `trailing_active = true`, peak PnL recorded
+2. Each management tick: a peak reconfirmation timer (15s, tolerance 0.85×) validates the peak before locking it
+3. If PnL drops `trailingDropPct` (default 1.5%) below the confirmed peak → drop queued for confirmation
+4. A 15-second reconfirmation re-fetches live PnL with 0.3% tolerance before executing
+5. On confirmation: `closePosition()` called **directly** (bypasses LLM), fallback to `runManagementCycle()` on failure
+6. Exit window lock (`confirmed_trailing_exit_until`) prevents duplicate close attempts for 120 seconds
+
+### Stop Loss
+
+Triggered at `stopLossPct` (default −20%) with the same 15-second reconfirmation flow and 0.5% tolerance. Position must be older than `minAgeBeforeSL` (default 15 min) to prevent stop-loss on fresh deploys during initial price discovery.
+
+### Out-of-Range Exits
+
+- **Upside OOR timeout**: Active bin above `upper_bin` for `outOfRangeWaitMinutes / √volatility` minutes (dynamic — high-volatility positions exit faster)
+- **Far above range**: `active_bin > upper_bin + outOfRangeBinsToClose` → immediate close (no wait)
+- **Downside OOR timeout**: Active bin below `lower_bin` for `downsideOorWaitMinutes` minutes (default 10 min; faster because downside recovery on meme tokens is rare)
+
+### Post-Close Auto-Swap
+
+After every close (LLM-triggered or direct), the base token is automatically swapped back to SOL via Jupiter if USD value ≥ $0.10. Dust below $0.10 is skipped to avoid wasting gas.
+
+---
+
+## Learning System
+
+```
+Position closed
+    → recordPerformance() stores: PnL %, range efficiency, close reason,
+      strategy, bin step, volatility, token metrics, Meteora API enrichment
+    → evolveThresholds() (if ≥ 5 positions):
+        compare winners vs losers across screening dimensions
+        nudge thresholds toward winner-profile medians (max 20% per step)
+        persist to user-config.json + hot-reload into memory
+    → signal-weights.js: boost/decay Darwinian signal weights
+    → next agent prompt includes updated lessons and weights
+```
+
+Manual lessons can be added via the REPL (`add a lesson: ...`) or pinned for permanent priority. The LLM can self-add lessons during a session via the `add_lesson` tool.
+
+---
+
+## Telegram Integration
+
+### Notifications (Outbound)
+
+| Event | Contents |
+|-------|----------|
+| Position deployed | Pool name, strategy, bin range, amount, volatility |
+| Position closed | Reason, PnL USD/%, fees earned, range efficiency, age, deposited/withdrawn USD |
+| Token swapped | From/to symbols, amount, estimated value |
+| Out of range | Pool name, direction, minutes OOR (debounced — no spam) |
+| Morning briefing | Daily HTML summary of portfolio, PnL, and market snapshot |
+
+### Commands (Inbound)
+
+| Command | Action |
+|---------|--------|
+| `/positions` | List open positions with visual progress bar `[████████░░] 40%` |
+| `/close <n>` | Close position by list index (direct bypass of LLM) |
+| `/set <n> <note>` | Set a conditional instruction on a position |
+| `/bootstrap <wallet>` | Import LP history from an existing wallet address |
+| Any other text | Routed to the GENERAL agent for natural-language handling |
+
+**Security**: Commands are only processed from `TELEGRAM_CHAT_ID`. In group chats, `TELEGRAM_ALLOWED_USER_IDS` must be set — without it, all group commands are rejected. Auto-registration of unknown chat IDs is disabled by default.
+
+---
+
+## Safety & Risk Warning
+
+> **This software interacts with live funds on Solana mainnet. Use at your own risk.**
+
+- **Impermanent Loss**: DLMM positions are exposed to IL when the token price moves outside the deployed bin range. The bot does not hedge IL exposure.
+- **Smart Contract Risk**: Meteora DLMM contracts have not been independently audited for this integration. Bugs in the SDK or on-chain program could result in loss of funds.
+- **Market Volatility**: Meme tokens can lose 90%+ of value within minutes. The stop-loss mechanism has a 15-second confirmation delay — during extreme volatility this may not be fast enough to prevent significant losses.
+- **RPC Failure**: If `RPC_URL` becomes unavailable, the bot cannot fetch position state and management/exit rules will not fire.
+- **LLM Hallucination**: The `ONCE_PER_SESSION` lock and anti-hallucination prompt instructions reduce but cannot eliminate the risk of the LLM claiming an action succeeded without actually executing it. All critical exits (trailing TP, stop loss, OOR timeouts) bypass the LLM entirely.
+- **API Rate Limits**: OpenRouter and Jupiter rate limits can delay tool execution. The agent retries with exponential backoff and switches to a fallback model on 502/503/529 errors.
+- **Capital Risk**: Start with `DRY_RUN=true` and small amounts. The compounding position-size formula increases capital at risk as the wallet grows.
+- **Key Security**: Never commit `.env` or `user-config.json` with a real private key to version control. Use restricted-permission RPC endpoints where possible.
+
+---
+
+## Troubleshooting
+
+### Bot doesn't deploy despite finding candidates
+
+- Check `maxPositions` — if already at the limit, screening is blocked at the executor level
+- Check `minSolToOpen` — wallet may have insufficient SOL after the gas reserve
+- Check `blockedLaunchpads` and `token-blacklist.json` for overly broad filters
+- Review logs (`logs/YYYY-MM-DD.log`) — search for `[blacklist]`, `[executor]`, `[screener]` prefixes
+
+### Positions not closing on stop loss or trailing TP
+
+- Verify `DRY_RUN` is not set to `true`
+- Check for `[state_warn]` log entries — peak/drop confirmation failures typically indicate RPC issues
+- Ensure position age exceeds `minAgeBeforeSL` (default 15 min) for stop loss
+- `pnlSanityMaxDiffPct` (default 5%) may be filtering bad API ticks — look for `Suspect PnL` log entries
+
+### LLM returning empty or incomplete responses
+
+- Increase `maxTokens` — free models often cap at 1024 tokens, causing truncated/empty responses. Minimum recommended: 2048
+- Switch to a different model via `managementModel` / `screeningModel` in `user-config.json`
+- Check for 429 rate-limit log entries — the agent waits up to `Retry-After` seconds but very long waits can stall cycles
+
+### Transaction failures
+
+- Verify SOL balance covers `amount_y + gasReserve` (default 0.2 SOL)
+- High network congestion: switch to a premium RPC endpoint (Helius, Triton)
+- Anchor/CJS compatibility issues: run `node scripts/patch-anchor.js`
+
+### Telegram commands not responding
+
+- Confirm `TELEGRAM_CHAT_ID` matches the chat you're sending from (check bot logs for the actual incoming chat ID)
+- For group chats: set `TELEGRAM_ALLOWED_USER_IDS` — commands from groups without explicit allowed users are silently dropped
+- Verify `TELEGRAM_BOT_TOKEN` is valid and the bot is a member of the target chat
+
+### `evolveThresholds` not updating screening config
+
+- Requires ≥ 5 closed positions in `lessons.json`
+- Note: `maxVolatility` and `minFeeTvlRatio` evolution paths are known no-ops — those config keys don't exist
+
+---
+
+## Changelog
+
+Recent notable changes (from git history):
+
+| Commit | Change |
+|--------|--------|
+| `f3528e8` | Downside OOR rule (Rule 4b), dynamic OOR timeout scaled by `√volatility`, auto-claim % threshold, reversal detection improvements |
+| `3831828` | Fix auto-swap after direct closes (trailing TP, stop loss, `/close`); ensure `notifyClose` always fires |
+| `70a6432` | Volatility-adaptive range calculation (continuous formula); Telegram message deduplication fix |
+| `596df14` | MiniMax provider support; `notifyClose` enriched with range efficiency, age, deposited/withdrawn USD |
+| `84155dd` | Fix overly aggressive low-yield exit; fix `evolveThresholds` bugs; improve `spot` strategy preference logic |
+| `7dc302e` | `check_pool_eligibility` tool — returns per-criterion screening verdict without deploying |
+| `05db130` | Adaptive strategy selection from token signals; deterministic volatility-based price range calculation |
+| `cd917de` | Stop-loss reliability: 15s reconfirmation, LLM bypass, `minAgeBeforeSL` guard |
+| `21bd8ac` | Trailing TP reliability; clarified interaction with static TP (trailing suppresses static once active) |
