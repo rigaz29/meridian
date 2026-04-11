@@ -183,6 +183,7 @@ const toolMap = {
       positionSizePct: ["management", "positionSizePct"],
       autoCompound: ["management", "autoCompound"],
       autoCompoundFeePct: ["management", "autoCompoundFeePct"],
+      bearMode: ["management", "bearMode"],
       // risk
       maxPositions: ["risk", "maxPositions"],
       maxDeployAmount: ["risk", "maxDeployAmount"],
@@ -336,16 +337,33 @@ export async function executeTool(name, args) {
           const poolAddr = result.pool || args.pool_address;
           if (poolAddr) addPoolNote({ pool_address: poolAddr, note: `Closed: low yield (fee/TVL below threshold) at ${new Date().toISOString().slice(0,10)}` }).catch?.(() => {});
         }
-      } else if (name === "claim_fees" && config.management.autoSwapAfterClaim && result.base_mint) {
-        try {
-          const balances = await getWalletBalances({});
-          const token = balances.tokens?.find(t => t.mint === result.base_mint);
-          if (token && token.usd >= 0.10) {
-            log("executor", `Auto-swapping claimed ${token.symbol || result.base_mint.slice(0, 8)} ($${token.usd.toFixed(2)}) back to SOL`);
-            await swapToken({ input_mint: result.base_mint, output_mint: "SOL", amount: token.balance });
+      } else if (name === "claim_fees") {
+        // Auto-swap base token → SOL after claim (if enabled)
+        if (config.management.autoSwapAfterClaim && result.base_mint) {
+          try {
+            const balances = await getWalletBalances({});
+            const token = balances.tokens?.find(t => t.mint === result.base_mint);
+            if (token && token.usd >= 0.10) {
+              log("executor", `Auto-swapping claimed ${token.symbol || result.base_mint.slice(0, 8)} ($${token.usd.toFixed(2)}) back to SOL`);
+              await swapToken({ input_mint: result.base_mint, output_mint: "SOL", amount: token.balance });
+            }
+          } catch (e) {
+            log("executor_warn", `Auto-swap after claim failed: ${e.message}`);
           }
-        } catch (e) {
-          log("executor_warn", `Auto-swap after claim failed: ${e.message}`);
+        }
+        // Bear mode: sweep excess SOL → USDC after collecting fees
+        if (config.management.bearMode) {
+          try {
+            const fresh = await getWalletBalances({});
+            const reserve = config.management.gasReserve ?? 0.2;
+            const excess = parseFloat((fresh.sol - reserve).toFixed(4));
+            if (excess >= 0.05) {
+              log("bear_mode", `Sweeping ${excess} SOL → USDC after claim (keeping ${reserve} SOL)`);
+              await swapToken({ input_mint: config.tokens.SOL, output_mint: config.tokens.USDC, amount: excess });
+            }
+          } catch (e) {
+            log("bear_mode_warn", `SOL → USDC sweep after claim failed: ${e.message}`);
+          }
         }
       }
     }
@@ -368,6 +386,20 @@ export async function executeTool(name, args) {
           }
         } catch (e) {
           log("executor_warn", `Auto-swap after close failed: ${e.message}`);
+        }
+        // Bear mode: sweep excess SOL → USDC to protect against SOL depreciation
+        if (config.management.bearMode) {
+          try {
+            const fresh = await getWalletBalances({});
+            const reserve = config.management.gasReserve ?? 0.2;
+            const excess = parseFloat((fresh.sol - reserve).toFixed(4));
+            if (excess >= 0.05) {
+              log("bear_mode", `Sweeping ${excess} SOL → USDC after close (keeping ${reserve} SOL)`);
+              await swapToken({ input_mint: config.tokens.SOL, output_mint: config.tokens.USDC, amount: excess });
+            }
+          } catch (e) {
+            log("bear_mode_warn", `SOL → USDC sweep after close failed: ${e.message}`);
+          }
         }
       }
     }
@@ -462,16 +494,31 @@ async function runSafetyChecks(name, args) {
         };
       }
 
-      // Check SOL balance
+      // Check SOL balance — bear mode: swap USDC → SOL on shortfall
       if (process.env.DRY_RUN !== "true") {
         const balance = await getWalletBalances();
         const gasReserve = config.management.gasReserve;
         const minRequired = amountY + gasReserve;
         if (balance.sol < minRequired) {
-          return {
-            pass: false,
-            reason: `Insufficient SOL: have ${balance.sol} SOL, need ${minRequired} SOL (${amountY} deploy + ${gasReserve} gas reserve).`,
-          };
+          if (config.management.bearMode && balance.usdc > 1 && balance.sol_price > 0) {
+            const shortfall = minRequired - balance.sol;
+            const usdcNeeded = parseFloat((shortfall * balance.sol_price * 1.02).toFixed(2)); // 2% slippage buffer
+            const usdcToSwap = Math.min(usdcNeeded, balance.usdc);
+            log("bear_mode", `Swapping ${usdcToSwap} USDC → SOL for deploy (shortfall: ${shortfall.toFixed(3)} SOL)`);
+            const swapResult = await swapToken({ input_mint: config.tokens.USDC, output_mint: config.tokens.SOL, amount: usdcToSwap });
+            if (!swapResult?.success) {
+              return { pass: false, reason: `Bear mode: USDC → SOL swap failed before deploy: ${swapResult?.error}` };
+            }
+            const fresh = await getWalletBalances();
+            if (fresh.sol < minRequired) {
+              return { pass: false, reason: `Bear mode: still insufficient SOL after swap (have ${fresh.sol.toFixed(3)}, need ${minRequired})` };
+            }
+          } else {
+            return {
+              pass: false,
+              reason: `Insufficient SOL: have ${balance.sol} SOL, need ${minRequired} SOL (${amountY} deploy + ${gasReserve} gas reserve).`,
+            };
+          }
         }
       }
 

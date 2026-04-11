@@ -79,6 +79,7 @@ export const config = {
     positionSizePct:       u.positionSizePct       ?? 0.35,
     autoCompound:          u.autoCompound          ?? false,   // scale deploy amount from wallet balance (no fixed floor)
     autoCompoundFeePct:    u.autoCompoundFeePct    ?? 0.02,   // reserve X% of wallet for tx fees (default 2%)
+    bearMode:              u.bearMode              ?? false,   // swap excess SOL → USDC after close/claim; swap back before deploy
     // Trailing take-profit
     trailingTakeProfit:    u.trailingTakeProfit    ?? true,
     trailingTriggerPct:    u.trailingTriggerPct    ?? 3,    // activate trailing at X% PnL

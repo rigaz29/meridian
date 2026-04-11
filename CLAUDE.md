@@ -89,6 +89,7 @@ Sets defined in `agent.js:6-7`. If you add a tool, also add it to the relevant s
 | minSolToOpen | management | 0.55 |
 | autoCompound | management | false |
 | autoCompoundFeePct | management | 0.02 |
+| bearMode | management | false |
 | outOfRangeWaitMinutes | management | 30 |
 | downsideOorWaitMinutes | management | 10 |
 | autoClaimPct | management | 5 |
@@ -100,6 +101,22 @@ Sets defined in `agent.js:6-7`. If you add a tool, also add it to the relevant s
 **`computeDeployAmount(walletSol)`** — scales position size with wallet balance. Two modes:
 - `autoCompound=false` (default): `clamp(deployable × positionSizePct, floor=deployAmountSol, ceil=maxDeployAmount)` where `deployable = walletSol - gasReserve`
 - `autoCompound=true`: `clamp(deployable × positionSizePct, floor=0, ceil=maxDeployAmount)` where `deployable = walletSol × (1 - autoCompoundFeePct)` — amount grows/shrinks with wallet automatically, `deployAmountSol` is ignored
+
+---
+
+## Bear Mode (bearMode)
+
+Protects against SOL depreciation during bear markets by keeping profits in USDC instead of SOL.
+
+**When `bearMode: true`:**
+- After `close_position`: base token → SOL (existing), then excess SOL → USDC (keep `gasReserve` in SOL)
+- After `claim_fees`: same sweep — excess SOL → USDC
+- Before `deploy_position`: if SOL < needed, auto-swap USDC → SOL (just enough to cover deploy + gasReserve, with 2% slippage buffer)
+- Screening pre-check: accepts SOL+USDC combined value instead of requiring raw SOL balance
+
+**Minimum sweep threshold:** 0.05 SOL — micro-amounts are not swapped to avoid unnecessary tx fees.
+
+**Interaction with `autoSwapAfterClaim`:** bear mode sweep runs regardless of `autoSwapAfterClaim`. When both are on, flow is: base token → SOL → sweep excess SOL → USDC.
 
 ---
 

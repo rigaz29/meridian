@@ -35,6 +35,20 @@ async function autoSwapBaseToken(base_mint, context = "") {
   } catch (e) {
     log("executor_warn", `[${context}] Auto-swap after close failed: ${e.message}`);
   }
+  // Bear mode: keep only gasReserve in SOL, sweep excess → USDC
+  if (config.management.bearMode) {
+    try {
+      const fresh = await getWalletBalances({});
+      const reserve = config.management.gasReserve ?? 0.2;
+      const excess = parseFloat((fresh.sol - reserve).toFixed(4));
+      if (excess >= 0.05) {
+        log("bear_mode", `[${context}] Sweeping ${excess} SOL → USDC (keeping ${reserve} SOL reserve)`);
+        await swapToken({ input_mint: config.tokens.SOL, output_mint: config.tokens.USDC, amount: excess });
+      }
+    } catch (e) {
+      log("bear_mode_warn", `[${context}] SOL → USDC sweep failed: ${e.message}`);
+    }
+  }
 }
 
 const TP_PCT = config.management.takeProfitFeePct;
@@ -520,10 +534,24 @@ export async function runScreeningCycle({ silent = false } = {}) {
       : config.management.deployAmountSol + config.management.gasReserve;
     const isDryRun = process.env.DRY_RUN === "true";
     if (!isDryRun && preBalance.sol < minRequired) {
-      log("cron", `Screening skipped — insufficient SOL (${preBalance.sol.toFixed(3)} < ${minRequired} needed for deploy + gas)`);
-      screenReport = `Screening skipped — insufficient SOL (${preBalance.sol.toFixed(3)} < ${minRequired} needed for deploy + gas).`;
-      _screeningBusy = false;
-      return screenReport;
+      // Bear mode: check if USDC balance covers the shortfall (will swap before deploy)
+      if (config.management.bearMode && preBalance.sol_price > 0 && preBalance.usdc > 1) {
+        const totalSolEquiv = preBalance.sol + preBalance.usdc / preBalance.sol_price;
+        if (totalSolEquiv >= minRequired) {
+          log("cron", `Bear mode: low SOL (${preBalance.sol.toFixed(3)}) but ${preBalance.usdc.toFixed(2)} USDC available — will swap before deploy`);
+          // Allow screening to proceed; USDC→SOL swap happens in executor safety check
+        } else {
+          log("cron", `Screening skipped — insufficient funds in bear mode (${totalSolEquiv.toFixed(3)} SOL equiv < ${minRequired})`);
+          screenReport = `Screening skipped — insufficient funds (${preBalance.sol.toFixed(3)} SOL + ${preBalance.usdc.toFixed(2)} USDC < ${minRequired} SOL equiv needed).`;
+          _screeningBusy = false;
+          return screenReport;
+        }
+      } else {
+        log("cron", `Screening skipped — insufficient SOL (${preBalance.sol.toFixed(3)} < ${minRequired} needed for deploy + gas)`);
+        screenReport = `Screening skipped — insufficient SOL (${preBalance.sol.toFixed(3)} < ${minRequired} needed for deploy + gas).`;
+        _screeningBusy = false;
+        return screenReport;
+      }
     }
   } catch (e) {
     log("cron_error", `Screening pre-check failed: ${e.message}`);
