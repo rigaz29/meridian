@@ -135,9 +135,9 @@ export async function deployPosition({
   const activeBinsBelow = bins_below != null
     ? Math.min(bins_below, estMaxBinsBelow)
     : Math.min(estMaxBinsBelow, calcBinsFromTarget(estBinStep, targetDownside));
-  const activeBinsAbove = bins_above != null
-    ? bins_above
-    : (activeStrategy === "spot" ? calcBinsFromTarget(estBinStep, targetUpside, true) : 0);
+  const activeBinsAbove = activeStrategy === "bid_ask"
+    ? 0
+    : (bins_above != null ? bins_above : calcBinsFromTarget(estBinStep, targetUpside, true));
 
   if (isPoolOnCooldown(pool_address)) {
     log("deploy", `Pool ${pool_address.slice(0, 8)} is on cooldown — skipping`);
@@ -178,9 +178,9 @@ export async function deployPosition({
   const finalBinsBelow = bins_below != null
     ? Math.min(bins_below, maxBinsBelow)
     : Math.min(maxBinsBelow, calcBinsFromTarget(actualBinStep, targetDownside));
-  const finalBinsAbove = bins_above != null
-    ? bins_above
-    : (activeStrategy === "spot" ? calcBinsFromTarget(actualBinStep, targetUpside, true) : 0);
+  const finalBinsAbove = activeStrategy === "bid_ask"
+    ? 0
+    : (bins_above != null ? bins_above : calcBinsFromTarget(actualBinStep, targetUpside, true));
 
   // Range calculation
   const minBinId = activeBin.binId - finalBinsBelow;
