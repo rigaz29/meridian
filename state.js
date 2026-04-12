@@ -451,6 +451,20 @@ export function isInMiddleThird(positionData) {
   return active_bin >= lowerThird && active_bin <= upperThird;
 }
 
+/**
+ * Returns true if active_bin is in the upper half of [lower_bin, upper_bin].
+ * Used for bid_ask positions (bins_above=0) where deploy price is at upper_bin —
+ * price near the top means position is healthy, suppress trailing TP.
+ */
+export function isInUpperHalf(positionData) {
+  const { lower_bin, upper_bin, active_bin } = positionData;
+  if (lower_bin == null || upper_bin == null || active_bin == null) return false;
+  const range = upper_bin - lower_bin;
+  if (range <= 0) return false;
+  const midPoint = lower_bin + range / 2;
+  return active_bin >= midPoint;
+}
+
 export function updatePnlAndCheckExits(position_address, positionData, mgmtConfig) {
   const { pnl_pct: currentPnlPct, pnl_pct_suspicious, in_range, fee_per_tvl_24h } = positionData;
   const state = load();
@@ -520,7 +534,12 @@ export function updatePnlAndCheckExits(position_address, positionData, mgmtConfi
   }
 
   // ── Trailing TP ────────────────────────────────────────────────
-  if (!pnl_pct_suspicious && pos.trailing_active && !isInMiddleThird(positionData)) {
+  // For bid_ask (bins_above=0): deploy price is at upper_bin, so active bin near top
+  // means position is healthy — suppress until price drops past the midpoint.
+  // For spot/curve: use the original middle-third guard.
+  const isBidAsk = pos.strategy === "bid_ask" && (pos.bin_range?.bins_above ?? 0) === 0;
+  const inSafeZone = isBidAsk ? isInUpperHalf(positionData) : isInMiddleThird(positionData);
+  if (!pnl_pct_suspicious && pos.trailing_active && !inSafeZone) {
     const dropFromPeak = pos.peak_pnl_pct - currentPnlPct;
     if (dropFromPeak >= mgmtConfig.trailingDropPct) {
       return {
