@@ -322,22 +322,6 @@ export async function runManagementCycle({ silent = false } = {}) {
           }
           continue;
         }
-        if (exit.action === "STOP_LOSS" && !exit.needs_confirmation) {
-          log("state", `[Price-drop SL] Direct close for ${p.pair}: ${exit.reason}`);
-          _pnlHistory.delete(p.position);
-          try {
-            const closeResult = await closePosition({ position_address: p.position, reason: exit.reason });
-            log("state", `[Price-drop SL] Close succeeded for ${p.position}`);
-            if (telegramEnabled()) {
-              const pnl = closeResult?.pnl_pct != null ? closeResult.pnl_pct.toFixed(2) : "?";
-              sendMessage(`🛑 <b>Price-drop SL</b> — ${p.pair}\nPnL: <code>${pnl}%</code>\n${exit.reason}`).catch(() => {});
-            }
-          } catch (closeErr) {
-            log("cron_error", `[Price-drop SL] Direct close failed for ${p.position}: ${closeErr.message} — falling back to LLM`);
-            exitMap.set(p.position, exit.reason);
-          }
-          continue;
-        }
         exitMap.set(p.position, exit.reason);
         log("state", `Exit alert for ${p.pair}: ${exit.reason}`);
       }
@@ -912,22 +896,6 @@ Summarize the current portfolio health, total fees earned, and performance of al
           if (exit.action === "STOP_LOSS" && exit.needs_confirmation) {
             if (queueStopLossConfirmation(p.position, exit.current_pnl_pct)) {
               scheduleStopLossConfirmation(p.position);
-            }
-            continue;
-          }
-          if (exit.action === "STOP_LOSS" && !exit.needs_confirmation) {
-            log("state", `[Price-drop SL] Direct close in poller for ${p.pair}: ${exit.reason}`);
-            _pnlHistory.delete(p.position);
-            try {
-              const closeResult = await closePosition({ position_address: p.position, reason: exit.reason });
-              log("state", `[Price-drop SL] Close succeeded for ${p.position}`);
-              if (telegramEnabled()) {
-                const pnl = closeResult?.pnl_pct != null ? closeResult.pnl_pct.toFixed(2) : "?";
-                sendMessage(`🛑 <b>Price-drop SL</b> — ${p.pair}\nPnL: <code>${pnl}%</code>\n${exit.reason}`).catch(() => {});
-              }
-            } catch (closeErr) {
-              log("cron_error", `[Price-drop SL] Direct close failed for ${p.position}: ${closeErr.message} — triggering management`);
-              runManagementCycle({ silent: true }).catch((e) => log("cron_error", `Price-drop SL management failed: ${e.message}`));
             }
             continue;
           }
