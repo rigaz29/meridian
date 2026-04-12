@@ -869,9 +869,23 @@ Summarize the current portfolio health, total fees earned, and performance of al
               try {
                 const closeResult = await closePosition({ position_address: p.position, reason });
                 log("state", `[Velocity SL] Close succeeded for ${p.position}`);
-                if (telegramEnabled()) {
-                  const pnl = closeResult?.pnl_pct != null ? closeResult.pnl_pct.toFixed(2) : "?";
-                  sendMessage(`⚡ <b>Velocity SL</b> — ${p.pair}\nPnL: <code>${pnl}%</code>\n${reason}`).catch(() => {});
+                if (closeResult?.success && telegramEnabled()) {
+                  notifyClose({
+                    pair:            closeResult.pool_name || p.pair,
+                    pnlUsd:          closeResult.pnl_usd          ?? 0,
+                    pnlPct:          closeResult.pnl_pct          ?? 0,
+                    feesEarned:      closeResult.fees_earned_usd,
+                    reason,
+                    rangeEfficiency: closeResult.range_efficiency,
+                    ageMinutes:      closeResult.age_minutes,
+                    deploySol:       closeResult.deploy_sol,
+                    depositedUsd:    closeResult.deposited_usd,
+                    withdrawnUsd:    closeResult.withdrawn_usd,
+                    positionAddress: p.position,
+                  }).catch(() => {});
+                }
+                if (closeResult?.base_mint) {
+                  autoSwapBaseToken(closeResult.base_mint, "Velocity SL").catch(() => {});
                 }
               } catch (closeErr) {
                 log("cron_error", `[Velocity SL] Direct close failed for ${p.position}: ${closeErr.message} — triggering management`);
