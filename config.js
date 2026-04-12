@@ -70,8 +70,7 @@ export const config = {
     minVolumeToRebalance:  u.minVolumeToRebalance  ?? 1000,
     stopLossPct:           u.stopLossPct           ?? u.emergencyPriceDropPct ?? -20,
     minAgeBeforeSL:        u.minAgeBeforeSL        ?? 7,   // minutes before stop loss can trigger
-    priceDropSLPct:        u.priceDropSLPct        ?? -15, // close if token price drops X% from entry bin (fee-independent)
-    pnlVelocitySLPct:      u.pnlVelocitySLPct      ?? 5,   // close if PnL drops X% within velocity window
+pnlVelocitySLPct:      u.pnlVelocitySLPct      ?? 5,   // close if PnL drops X% within velocity window
     pnlVelocityWindowSec:  u.pnlVelocityWindowSec  ?? 90,  // velocity measurement window in seconds
     takeProfitFeePct:      u.takeProfitFeePct      ?? 5,
     minFeePerTvl24h:       u.minFeePerTvl24h       ?? 7,
