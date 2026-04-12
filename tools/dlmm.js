@@ -776,6 +776,11 @@ export async function closePosition({ position_address, reason }) {
 
   const tracked = getTrackedPosition(position_address);
 
+  // Guard: already closed by a previous cycle — don't attempt on-chain close again
+  if (tracked?.closed) {
+    return { success: false, error: "Position already closed — recorded in state registry" };
+  }
+
   // Warm up positions cache so preCloseSnapshot has PnL data.
   // If the cache is missing this position (e.g. close triggered via chat
   // without a prior management cycle), PnL would otherwise show as $0.
@@ -853,12 +858,27 @@ export async function closePosition({ position_address, reason }) {
       }
     } else {
       log("close", `Step 2: Position is empty, forcing close account`);
-      const closeTx = await pool.closePosition({
-        owner: wallet.publicKey,
-        position: { publicKey: positionPubKey },
-      });
-      const txHash = await sendAndConfirmTransaction(getConnection(), closeTx, [wallet]);
-      closeTxHashes.push(txHash);
+      try {
+        const closeTx = await pool.closePosition({
+          owner: wallet.publicKey,
+          position: { publicKey: positionPubKey },
+        });
+        const txHash = await sendAndConfirmTransaction(getConnection(), closeTx, [wallet]);
+        closeTxHashes.push(txHash);
+      } catch (e) {
+        // AccountOwnedByWrongProgram (0xbbf) means the account is already owned by the
+        // System Program — position was closed on-chain before we got here. Treat as success.
+        const alreadyClosed =
+          e.message?.includes("0xbbf") ||
+          e.message?.includes("AccountOwnedByWrongProgram") ||
+          e.logs?.some?.(l => l.includes("AccountOwnedByWrongProgram") || l.includes("0xbbf"));
+        if (alreadyClosed) {
+          log("close_warn", `Step 2: Position already closed on-chain (AccountOwnedByWrongProgram) — treating as success`);
+          // closeTxHashes stays empty; will still go through confirmation + recordClose below
+        } else {
+          throw e;
+        }
+      }
     }
     const txHashes = [...claimTxHashes, ...closeTxHashes];
     log("close", `Step 2 OK (close only): ${closeTxHashes.join(", ") || "none"}`);
