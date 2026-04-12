@@ -183,15 +183,16 @@ Before `deploy_position` executes:
 
 ## bins_below Calculation (SCREENER)
 
-Linear formula based on pool volatility (set in screener prompt, `index.js`):
+Auto-calculated in `tools/dlmm.js` based on actual pool `bin_step` and `volatility`. LLM never passes bins values.
 
 ```
-bins_below = round(35 + (volatility / 5) * 34), clamped to [35, 69]
+targetDownside = min(0.55, 0.25 + (vol/5) * 0.30)
+bins_below = min(50, calcBinsFromTarget(binStep, targetDownside))
 ```
 
-- Low volatility (0) → 35 bins
-- High volatility (5+) → 69 bins
-- Any value in between is valid (continuous, not tiered)
+- Low volatility (0) → ~25% downside coverage
+- High volatility (5) → ~55% downside coverage, capped at 50 bins
+- `bins_above`: `spot` → calculated from `targetUpside = min(0.35, 0.15 + (vol/5) * 0.15)`; `bid_ask` → always 0
 
 ---
 

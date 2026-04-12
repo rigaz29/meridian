@@ -133,7 +133,7 @@ export async function deployPosition({
   const estBinStep = bin_step ?? 100;
   const activeBinsBelow = bins_below != null
     ? bins_below
-    : calcBinsFromTarget(estBinStep, targetDownside);
+    : Math.min(50, calcBinsFromTarget(estBinStep, targetDownside));
   const activeBinsAbove = bins_above != null
     ? bins_above
     : (activeStrategy === "spot" ? calcBinsFromTarget(estBinStep, targetUpside, true) : 0);
@@ -175,7 +175,7 @@ export async function deployPosition({
   const actualBinStep = pool.lbPair.binStep;
   const finalBinsBelow = bins_below != null
     ? bins_below
-    : calcBinsFromTarget(actualBinStep, targetDownside);
+    : Math.min(50, calcBinsFromTarget(actualBinStep, targetDownside));
   const finalBinsAbove = bins_above != null
     ? bins_above
     : (activeStrategy === "spot" ? calcBinsFromTarget(actualBinStep, targetUpside, true) : 0);
