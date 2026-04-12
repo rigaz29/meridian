@@ -844,6 +844,8 @@ export async function closePosition({ position_address, reason }) {
     // Wait for RPC to reflect withdrawn balances before returning — prevents
     // agent from seeing zero balance when attempting post-close swap
     await new Promise(r => setTimeout(r, 5000));
+    // Snapshot pre-close cache before invalidating — used as PnL fallback below
+    const preCloseSnapshot = _positionsCache?.positions?.find(p => p.position === position_address) ?? null;
     _positionsCacheAt = 0;
 
     let closedConfirmed = false;
@@ -916,7 +918,7 @@ export async function closePosition({ position_address, reason }) {
       }
       // Fallback to pre-close cache snapshot if closed API had no data
       if (finalValueUsd === 0) {
-        const cachedPos = _positionsCache?.positions?.find(p => p.position === position_address);
+        const cachedPos = preCloseSnapshot ?? _positionsCache?.positions?.find(p => p.position === position_address);
         if (cachedPos) {
           pnlUsd        = cachedPos.pnl_true_usd ?? cachedPos.pnl_usd ?? 0;
           pnlPct        = cachedPos.pnl_pct   ?? 0;
