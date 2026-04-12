@@ -131,9 +131,10 @@ export async function deployPosition({
 
   // Preliminary estimate using provided bin_step (used for DRY_RUN and wide-range check)
   const estBinStep = bin_step ?? 100;
+  const estMaxBinsBelow = estBinStep >= 125 ? 40 : estBinStep >= 100 ? 55 : 60;
   const activeBinsBelow = bins_below != null
-    ? bins_below
-    : Math.min(50, calcBinsFromTarget(estBinStep, targetDownside));
+    ? Math.min(bins_below, estMaxBinsBelow)
+    : Math.min(estMaxBinsBelow, calcBinsFromTarget(estBinStep, targetDownside));
   const activeBinsAbove = bins_above != null
     ? bins_above
     : (activeStrategy === "spot" ? calcBinsFromTarget(estBinStep, targetUpside, true) : 0);
@@ -173,9 +174,10 @@ export async function deployPosition({
   // Recalculate bins using actual pool bin_step (unless explicitly provided by caller)
   // targetDownside/targetUpside already computed above using volatility
   const actualBinStep = pool.lbPair.binStep;
+  const maxBinsBelow = actualBinStep >= 125 ? 40 : actualBinStep >= 100 ? 55 : 60;
   const finalBinsBelow = bins_below != null
-    ? bins_below
-    : Math.min(50, calcBinsFromTarget(actualBinStep, targetDownside));
+    ? Math.min(bins_below, maxBinsBelow)
+    : Math.min(maxBinsBelow, calcBinsFromTarget(actualBinStep, targetDownside));
   const finalBinsAbove = bins_above != null
     ? bins_above
     : (activeStrategy === "spot" ? calcBinsFromTarget(actualBinStep, targetUpside, true) : 0);
