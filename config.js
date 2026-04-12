@@ -75,7 +75,7 @@ export const config = {
     pnlVelocityWindowSec:  u.pnlVelocityWindowSec  ?? 90,  // velocity measurement window in seconds
     takeProfitFeePct:      u.takeProfitFeePct      ?? 5,
     minFeePerTvl24h:       u.minFeePerTvl24h       ?? 7,
-    minAgeBeforeYieldCheck:    u.minAgeBeforeYieldCheck    ?? 90,   // minutes before low yield can trigger close
+    minAgeBeforeYieldCheck:    u.minAgeBeforeYieldCheck    ?? 60,   // minutes before low yield can trigger close
     minFeesEarnedForYieldExit: u.minFeesEarnedForYieldExit ?? 0.20, // min unclaimed fees (USD) before low yield can trigger close
     minSolToOpen:          u.minSolToOpen          ?? 0.55,
     deployAmountSol:       u.deployAmountSol       ?? 0.5,
