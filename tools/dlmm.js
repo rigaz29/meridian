@@ -761,6 +761,13 @@ export async function closePosition({ position_address, reason }) {
 
   const tracked = getTrackedPosition(position_address);
 
+  // Warm up positions cache so preCloseSnapshot has PnL data.
+  // If the cache is missing this position (e.g. close triggered via chat
+  // without a prior management cycle), PnL would otherwise show as $0.
+  if (!_positionsCache?.positions?.some(p => p.position === position_address)) {
+    try { await getMyPositions({ force: true, silent: true }); } catch (_) {}
+  }
+
   try {
     log("close", `Closing position: ${position_address}`);
     const wallet = getWallet();
@@ -959,7 +966,7 @@ export async function closePosition({ position_address, reason }) {
         success: true,
         position: position_address,
         pool: poolAddress,
-        pool_name: tracked.pool_name || null,
+        pool_name: tracked.pool_name || preCloseSnapshot?.pair || null,
         claim_txs: claimTxHashes,
         close_txs: closeTxHashes,
         txs: txHashes,
