@@ -52,7 +52,10 @@ export async function discoverPools({
 
   const data = await res.json();
 
-  const condensed = (data.data || []).map(condensePool);
+  const SOL_MINT = "So11111111111111111111111111111111111111112";
+  const condensed = (data.data || [])
+    .filter((p) => p.token_y?.address === SOL_MINT)
+    .map(condensePool);
 
   // Hard-filter blacklisted tokens and blocked deployers (what pool discovery already gave us)
   let pools = condensed.filter((p) => {
