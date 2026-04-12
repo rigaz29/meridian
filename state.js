@@ -436,6 +436,21 @@ export function resolvePendingStopLoss(position_address, currentPnlPct, stopLoss
  * @param {object} mgmtConfig
  * Returns { action, reason } or null if no exit needed.
  */
+
+/**
+ * Returns true if active_bin is in the middle third of [lower_bin, upper_bin].
+ * When in the middle third, rapid price swings are normal LP activity — suppress TP/SL.
+ */
+export function isInMiddleThird(positionData) {
+  const { lower_bin, upper_bin, active_bin } = positionData;
+  if (lower_bin == null || upper_bin == null || active_bin == null) return false;
+  const range = upper_bin - lower_bin;
+  if (range <= 0) return false;
+  const lowerThird = lower_bin + range / 3;
+  const upperThird = upper_bin - range / 3;
+  return active_bin >= lowerThird && active_bin <= upperThird;
+}
+
 export function updatePnlAndCheckExits(position_address, positionData, mgmtConfig) {
   const { pnl_pct: currentPnlPct, pnl_pct_suspicious, in_range, fee_per_tvl_24h } = positionData;
   const state = load();
@@ -489,7 +504,7 @@ export function updatePnlAndCheckExits(position_address, positionData, mgmtConfi
   if (changed) save(state);
 
   // ── Price-drop SL (bin-based, fee-independent) ─────────────────────────
-  if (!pnl_pct_suspicious && mgmtConfig.priceDropSLPct != null) {
+  if (!pnl_pct_suspicious && mgmtConfig.priceDropSLPct != null && !isInMiddleThird(positionData)) {
     const deployBin  = pos.active_bin_at_deploy;
     const binStep    = pos.bin_step;
     const currentBin = positionData.active_bin;
@@ -514,7 +529,7 @@ export function updatePnlAndCheckExits(position_address, positionData, mgmtConfi
   }
 
   // ── Stop loss ──────────────────────────────────────────────────
-  if (!pnl_pct_suspicious && currentPnlPct != null && mgmtConfig.stopLossPct != null && currentPnlPct <= mgmtConfig.stopLossPct) {
+  if (!pnl_pct_suspicious && currentPnlPct != null && mgmtConfig.stopLossPct != null && currentPnlPct <= mgmtConfig.stopLossPct && !isInMiddleThird(positionData)) {
     const minAgeForSL = mgmtConfig.minAgeBeforeSL ?? 7;
     const ageMinutes = positionData.age_minutes;
     if (ageMinutes != null && ageMinutes < minAgeForSL) {
@@ -530,7 +545,7 @@ export function updatePnlAndCheckExits(position_address, positionData, mgmtConfi
   }
 
   // ── Trailing TP ────────────────────────────────────────────────
-  if (!pnl_pct_suspicious && pos.trailing_active) {
+  if (!pnl_pct_suspicious && pos.trailing_active && !isInMiddleThird(positionData)) {
     const dropFromPeak = pos.peak_pnl_pct - currentPnlPct;
     if (dropFromPeak >= mgmtConfig.trailingDropPct) {
       return {

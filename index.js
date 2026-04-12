@@ -11,7 +11,7 @@ import { evolveThresholds, getPerformanceSummary, bootstrapFromHistory } from ".
 import { registerCronRestarter } from "./tools/executor.js";
 import { startPolling, stopPolling, sendMessage, sendHTML, notifyOutOfRange, notifyClose, isEnabled as telegramEnabled, createLiveMessage, formatPositionsList } from "./telegram.js";
 import { generateBriefing } from "./briefing.js";
-import { getLastBriefingDate, setLastBriefingDate, getTrackedPosition, setPositionInstruction, updatePnlAndCheckExits, queuePeakConfirmation, resolvePendingPeak, queueTrailingDropConfirmation, resolvePendingTrailingDrop, queueStopLossConfirmation, resolvePendingStopLoss } from "./state.js";
+import { getLastBriefingDate, setLastBriefingDate, getTrackedPosition, setPositionInstruction, updatePnlAndCheckExits, isInMiddleThird, queuePeakConfirmation, resolvePendingPeak, queueTrailingDropConfirmation, resolvePendingTrailingDrop, queueStopLossConfirmation, resolvePendingStopLoss } from "./state.js";
 import { getActiveStrategy } from "./strategy-library.js";
 import { recordPositionSnapshot, recallForPool, addPoolNote } from "./pool-memory.js";
 import { checkSmartWalletsOnPool } from "./smart-wallets.js";
@@ -373,7 +373,8 @@ export async function runManagementCycle({ silent = false } = {}) {
       })();
 
       // Rule 2: take profit (skip if trailing TP is active — trailing handles the exit)
-      if (!pnlSuspect && !tracked?.trailing_active && p.pnl_pct != null && p.pnl_pct >= config.management.takeProfitFeePct) {
+      // Also skip when active bin is in middle third — rapid PnL swings there are normal LP activity
+      if (!pnlSuspect && !tracked?.trailing_active && p.pnl_pct != null && p.pnl_pct >= config.management.takeProfitFeePct && !isInMiddleThird(p)) {
         actionMap.set(p.position, { action: "CLOSE", rule: 2, reason: "take profit" });
         continue;
       }
@@ -861,7 +862,8 @@ Summarize the current portfolio health, total fees earned, and performance of al
 
       for (const p of result.positions) {
         // ── Velocity SL: detect rapid PnL freefall ─────────────────────
-        if (!p.pnl_pct_suspicious && p.pnl_pct != null) {
+        // Skip when active bin is in middle third — rapid swings there are normal LP activity
+        if (!p.pnl_pct_suspicious && p.pnl_pct != null && !isInMiddleThird(p)) {
           const now = Date.now();
           const windowMs = (config.management.pnlVelocityWindowSec ?? 90) * 1000;
           const hist = _pnlHistory.get(p.position) || [];
