@@ -330,8 +330,19 @@ let _positionsCacheAt = 0;
 let _positionsInflight = null; // deduplicates concurrent calls
 const LPAGENT_API = "https://api.lpagent.io/open-api/v1";
 
+// Separate cache for LPAgent open-positions data — independent of the main
+// positions cache so that force-refreshes don't re-hit the API every cycle.
+const LPAGENT_CACHE_TTL = 2 * 60_000; // 2 minutes
+let _lpAgentCache = null;
+let _lpAgentCacheAt = 0;
+
 async function fetchLpAgentOpenPositions(walletAddress) {
   if (!process.env.LPAGENT_API_KEY) return {};
+
+  // Serve from cache if fresh enough, even when the main positions cache is busted.
+  if (_lpAgentCache !== null && Date.now() - _lpAgentCacheAt < LPAGENT_CACHE_TTL) {
+    return _lpAgentCache;
+  }
 
   const url = `${LPAGENT_API}/lp-positions/opening?owner=${walletAddress}`;
   try {
@@ -343,7 +354,7 @@ async function fetchLpAgentOpenPositions(walletAddress) {
     if (!res.ok) {
       const body = await res.text().catch(() => "");
       log("lpagent_api", `HTTP ${res.status} for owner ${walletAddress.slice(0, 8)}: ${body.slice(0, 160)}`);
-      return {};
+      return _lpAgentCache ?? {}; // return stale cache on error rather than empty
     }
     const data = await res.json();
     const positions = data?.data || [];
@@ -352,10 +363,12 @@ async function fetchLpAgentOpenPositions(walletAddress) {
       const addr = p.position || p.id || p.tokenId;
       if (addr) byAddress[addr] = p;
     }
+    _lpAgentCache = byAddress;
+    _lpAgentCacheAt = Date.now();
     return byAddress;
   } catch (e) {
     log("lpagent_api", `Fetch error for owner ${walletAddress.slice(0, 8)}: ${e.message}`);
-    return {};
+    return _lpAgentCache ?? {};
   }
 }
 
@@ -905,12 +918,13 @@ export async function closePosition({ position_address, reason }) {
       let finalValueUsd = 0;
       let initialUsd = 0;
       let feesUsd = tracked.total_fees_claimed_usd || 0;
+      let posEntry = null;
       try {
         const closedUrl = `https://dlmm.datapi.meteora.ag/positions/${poolAddress}/pnl?user=${wallet.publicKey.toString()}&status=closed&pageSize=50&page=1`;
         const res = await fetch(closedUrl);
         if (res.ok) {
           const data = await res.json();
-          const posEntry = (data.positions || []).find(p => p.positionAddress === position_address);
+          posEntry = (data.positions || []).find(p => p.positionAddress === position_address) ?? null;
           if (posEntry) {
             pnlUsd        = parseFloat(posEntry.pnlUsd || 0);
             pnlPct        = parseFloat(posEntry.pnlPctChange || 0);
@@ -925,21 +939,24 @@ export async function closePosition({ position_address, reason }) {
       } catch (e) {
         log("close_warn", `Closed PnL fetch failed: ${e.message}`);
       }
-      // Fallback to pre-close cache snapshot if closed API had no data
-      if (finalValueUsd === 0) {
+      // Fallback to pre-close cache snapshot when API didn't return the position
+      // (triggered by: fetch error, non-ok status, or position not yet in closed list)
+      if (!posEntry) {
         const cachedPos = preCloseSnapshot ?? _positionsCache?.positions?.find(p => p.position === position_address);
         if (cachedPos) {
-          pnlUsd        = cachedPos.pnl_true_usd ?? cachedPos.pnl_usd ?? 0;
-          pnlPct        = cachedPos.pnl_pct   ?? 0;
-          feesUsd       = (cachedPos.collected_fees_true_usd || 0) + (cachedPos.unclaimed_fees_true_usd || 0);
-          initialUsd    = tracked.initial_value_usd || 0;
+          // pnl_true_usd = currentValue + unclaimedFees - deposit (excludes collected fees)
+          pnlUsd    = cachedPos.pnl_true_usd ?? cachedPos.pnl_usd ?? 0;
+          feesUsd   = (cachedPos.collected_fees_true_usd || 0) + (cachedPos.unclaimed_fees_true_usd || 0);
+          initialUsd = tracked.initial_value_usd || 0;
           if (initialUsd > 0) {
-            // Keep fallback internally consistent using USD-only cached metrics.
-            finalValueUsd = Math.max(0, initialUsd + pnlUsd - feesUsd);
+            // currentValue = pnl_true_usd + deposit - unclaimedFees
+            const unclaimedUsd = cachedPos.unclaimed_fees_true_usd || 0;
+            finalValueUsd = Math.max(0, initialUsd + pnlUsd - unclaimedUsd);
             pnlPct = (pnlUsd / initialUsd) * 100;
           } else {
             finalValueUsd = cachedPos.total_value_true_usd ?? cachedPos.total_value_usd ?? 0;
-            initialUsd = Math.max(0, finalValueUsd + feesUsd - pnlUsd);
+            initialUsd    = Math.max(0, finalValueUsd + feesUsd - pnlUsd);
+            pnlPct        = cachedPos.pnl_pct ?? 0;
           }
           log("close_warn", `Using cached pnl fallback because closed API has not settled yet`);
         }
