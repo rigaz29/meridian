@@ -331,6 +331,118 @@ export function recallForPool(poolAddress) {
 }
 
 /**
+ * Compute a deterministic strategy recommendation for a pool before deploy.
+ *
+ * Priority order (highest wins):
+ *  1. smart_money_buy signal         → bid_ask (hard override)
+ *  2. Pool history: conflicting data → use whichever strategy has better avg PnL on this pool
+ *  3. Volatility rule                → >= 3.0 = bid_ask; < 2.5 = consider spot
+ *  4. Price momentum                 → |price_change_pct| > 3% = bid_ask
+ *  5. Fee farming signal             → fee_tvl_ratio >= 0.8 AND vol < 2.5 AND no momentum = spot
+ *  6. Default                        → bid_ask
+ *
+ * @param {string|null} poolAddress
+ * @param {Object} signals
+ * @param {boolean} [signals.smart_money_buy]
+ * @param {number}  [signals.volatility]         0–10 scale
+ * @param {number}  [signals.fee_tvl_ratio]
+ * @param {number}  [signals.price_change_pct]   % change over recent period
+ * @returns {{ strategy: "bid_ask"|"spot", reason: string, confidence: "high"|"medium"|"low" }}
+ */
+export function computeStrategyRecommendation(poolAddress, signals = {}) {
+  const {
+    smart_money_buy = false,
+    volatility = 2.5,
+    fee_tvl_ratio = 0,
+    price_change_pct = null,
+  } = signals;
+
+  // Priority 1: smart money
+  if (smart_money_buy) {
+    return { strategy: "bid_ask", reason: "smart_money_buy signal present — directional momentum", confidence: "high" };
+  }
+
+  // Priority 2: pool history analysis
+  if (poolAddress) {
+    const db = load();
+    const entry = db[poolAddress];
+    if (entry?.deploys?.length >= 2) {
+      const byStrategy = { bid_ask: [], spot: [] };
+      for (const d of entry.deploys) {
+        if (d.strategy && d.pnl_pct != null) {
+          byStrategy[d.strategy]?.push(d.pnl_pct);
+        }
+      }
+      const bidAskAvg = byStrategy.bid_ask.length
+        ? byStrategy.bid_ask.reduce((s, v) => s + v, 0) / byStrategy.bid_ask.length
+        : null;
+      const spotAvg = byStrategy.spot.length
+        ? byStrategy.spot.reduce((s, v) => s + v, 0) / byStrategy.spot.length
+        : null;
+
+      // Both strategies tried — pick the winner
+      if (bidAskAvg !== null && spotAvg !== null) {
+        if (bidAskAvg > spotAvg + 2) {
+          return {
+            strategy: "bid_ask",
+            reason: `pool history: bid_ask avg ${bidAskAvg.toFixed(1)}% vs spot avg ${spotAvg.toFixed(1)}% on ${entry.name}`,
+            confidence: "high",
+          };
+        }
+        if (spotAvg > bidAskAvg + 2 && byStrategy.spot.length >= 2) {
+          return {
+            strategy: "spot",
+            reason: `pool history: spot avg ${spotAvg.toFixed(1)}% vs bid_ask avg ${bidAskAvg.toFixed(1)}% on ${entry.name} (${byStrategy.spot.length} wins)`,
+            confidence: "high",
+          };
+        }
+      }
+
+      // Only spot tried and it consistently lost → force bid_ask
+      if (spotAvg !== null && bidAskAvg === null && spotAvg < 0) {
+        return {
+          strategy: "bid_ask",
+          reason: `pool history: spot avg ${spotAvg.toFixed(1)}% — trying bid_ask instead`,
+          confidence: "medium",
+        };
+      }
+    }
+  }
+
+  // Priority 3: volatility rule
+  const hasMomentum = price_change_pct != null && Math.abs(price_change_pct) > 3;
+
+  if (volatility >= 3.0) {
+    return {
+      strategy: "bid_ask",
+      reason: `volatility ${volatility.toFixed(1)} >= 3.0 — directional strategy preferred`,
+      confidence: "high",
+    };
+  }
+
+  // Priority 4: price momentum
+  if (hasMomentum) {
+    return {
+      strategy: "bid_ask",
+      reason: `price_change_pct ${price_change_pct > 0 ? "+" : ""}${price_change_pct.toFixed(1)}% — active momentum favors bid_ask`,
+      confidence: "medium",
+    };
+  }
+
+  // Priority 5: fee farming signal (low vol, high fee, no momentum)
+  if (volatility < 2.5 && fee_tvl_ratio >= 0.8) {
+    return {
+      strategy: "spot",
+      reason: `low volatility (${volatility.toFixed(1)}) + high fee/tvl (${fee_tvl_ratio.toFixed(2)}) + no price momentum — fee farming profile`,
+      confidence: "medium",
+    };
+  }
+
+  // Default
+  return { strategy: "bid_ask", reason: "default — no strong spot signal detected", confidence: "low" };
+}
+
+/**
  * Tool handler: add_pool_note
  * Agent can annotate a pool with a freeform note.
  */

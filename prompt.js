@@ -124,10 +124,12 @@ POOL MEMORY: Past losses or problems → strong skip signal.
 
 DEPLOY RULES:
 - COMPOUNDING: Use the deploy amount from the goal EXACTLY. Do NOT default to a smaller number.
-- Strategy: choose bid_ask or spot based on token signals:
-  * bid_ask → smart_money_buy tag, OR price_change > 0 with net_buyers > 0, OR token_age < 48h with strong narrative (momentum/directional)
-  * spot → range-bound, stable volume, no clear directional signal (fee farming)
-  * Default when unclear → bid_ask
+- Strategy: use the STRATEGY HINT provided per-candidate (computed from pool history + signals).
+  Override only if you have strong contradicting evidence and state why explicitly.
+  Rules if no hint or hint confidence=low:
+  * bid_ask (default) → almost always correct for trending/meme tokens. Use when: smart_money_buy, OR volatility >= 3, OR |price_change| > 3%, OR token_age < 48h
+  * spot (exception) → ONLY when ALL of these are true: volatility < 2.5 AND fee_tvl_ratio >= 0.8 AND |price_change| < 3% AND no smart_money_buy AND pool history shows spot winning on this pool
+  * When in doubt → bid_ask. Historical data shows bid_ask wins ~92% vs spot ~43% on this portfolio.
 - bins_below and bins_above are auto-calculated — DO NOT pass them. Pass only strategy and bin_step.
 - bins_above is always 0 for bid_ask.
 - Bin steps must be [80-125].

@@ -13,7 +13,7 @@ import { startPolling, stopPolling, sendMessage, sendHTML, notifyOutOfRange, not
 import { generateBriefing } from "./briefing.js";
 import { getLastBriefingDate, setLastBriefingDate, getTrackedPosition, setPositionInstruction, updatePnlAndCheckExits, queuePeakConfirmation, resolvePendingPeak, queueTrailingDropConfirmation, resolvePendingTrailingDrop, queueStopLossConfirmation, resolvePendingStopLoss } from "./state.js";
 import { getActiveStrategy } from "./strategy-library.js";
-import { recordPositionSnapshot, recallForPool, addPoolNote } from "./pool-memory.js";
+import { recordPositionSnapshot, recallForPool, addPoolNote, computeStrategyRecommendation } from "./pool-memory.js";
 import { checkSmartWalletsOnPool } from "./smart-wallets.js";
 import { getTokenNarrative, getTokenInfo } from "./tools/token.js";
 
@@ -708,8 +708,16 @@ export async function runScreeningCycle({ silent = false } = {}) {
         pool.dev_sold_all       ? "dev_sold_all(bullish)" : null,
       ].filter(Boolean).join(", ");
 
+      const strategyHint = computeStrategyRecommendation(pool.pool, {
+        smart_money_buy: !!pool.smart_money_buy,
+        volatility: pool.volatility,
+        fee_tvl_ratio: pool.fee_active_tvl_ratio,
+        price_change_pct: ti?.stats_1h?.price_change ?? null,
+      });
+
       const block = [
         `POOL: ${pool.name} (${pool.pool})`,
+        `  strategy_hint: ${strategyHint.strategy} [${strategyHint.confidence}] — ${strategyHint.reason}`,
         `  metrics: bin_step=${pool.bin_step}, fee_pct=${pool.fee_pct}%, fee_tvl=${pool.fee_active_tvl_ratio}, vol=$${pool.volume_window}, tvl=$${pool.active_tvl}, volatility=${pool.volatility}, mcap=$${pool.mcap}, organic=${pool.organic_score}${pool.token_age_hours != null ? `, age=${pool.token_age_hours}h` : ""}`,
         `  audit: top10=${top10Pct}%, bots=${botPct}%, fees=${feesSol}SOL${launchpad ? `, launchpad=${launchpad}` : ""}`,
         okxParts ? `  okx: ${okxParts}` : okxUnavailable ? `  okx: unavailable` : null,
@@ -737,7 +745,7 @@ ${candidateBlocks.join("\n\n")}
 STEPS:
 1. Pick the best candidate based on narrative quality, smart wallets, and pool metrics.
 2. Call deploy_position (active_bin is pre-fetched above — no need to call get_active_bin).
-   Choose strategy (bid_ask or spot) based on token signals. Bins are auto-calculated — pass only strategy and bin_step.
+   Use the strategy_hint shown per-pool. Override only if you have strong contradicting evidence. Bins are auto-calculated — pass only strategy and bin_step.
 3. Report in this exact format (no tables, no extra sections):
    🚀 DEPLOYED
 

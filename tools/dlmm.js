@@ -19,7 +19,7 @@ import {
   syncOpenPositions,
 } from "../state.js";
 import { recordPerformance } from "../lessons.js";
-import { isBaseMintOnCooldown, isPoolOnCooldown } from "../pool-memory.js";
+import { isBaseMintOnCooldown, isPoolOnCooldown, computeStrategyRecommendation } from "../pool-memory.js";
 import { normalizeMint } from "./wallet.js";
 
 // ─── Lazy SDK loader ───────────────────────────────────────────
@@ -127,7 +127,19 @@ export async function deployPosition({
   entry_smart_money_buy,
 }) {
   pool_address = normalizeMint(pool_address);
-  const activeStrategy = strategy || config.strategy.strategy;
+  // Use provided strategy, else compute from pool history + signals, else fall back to config
+  const strategyRec = !strategy
+    ? computeStrategyRecommendation(pool_address, {
+        smart_money_buy: entry_smart_money_buy ?? false,
+        volatility,
+        fee_tvl_ratio,
+        price_change_pct: entry_price_change_pct ?? null,
+      })
+    : null;
+  if (strategyRec) {
+    log("deploy", `Strategy auto-selected: ${strategyRec.strategy} (${strategyRec.confidence}) — ${strategyRec.reason}`);
+  }
+  const activeStrategy = strategy || strategyRec?.strategy || config.strategy.strategy;
 
   const vol = (typeof volatility === "number" && volatility >= 0) ? volatility : 2.5;
   const targetDownside = Math.min(0.50, 0.32 + (vol / 5) * 0.09);  // vol=0→32%, vol=2.5→36.5%, vol=5→41%, cap=50%
