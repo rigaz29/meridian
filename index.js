@@ -160,6 +160,7 @@ function scheduleTrailingDropConfirmation(positionAddress) {
           const closeResult = await closePosition({ position_address: positionAddress, reason: resolved.reason });
           log("state", `[Trailing TP] Direct close succeeded for ${positionAddress}`);
           if (closeResult?.success && telegramEnabled()) {
+            const _tr = getTrackedPosition(positionAddress);
             notifyClose({
               pair:            closeResult.pool_name || positionAddress.slice(0, 8),
               pnlUsd:          closeResult.pnl_usd          ?? 0,
@@ -172,6 +173,9 @@ function scheduleTrailingDropConfirmation(positionAddress) {
               depositedUsd:    closeResult.deposited_usd,
               withdrawnUsd:    closeResult.withdrawn_usd,
               positionAddress,
+              strategy:        _tr?.strategy   ?? null,
+              binStep:         _tr?.bin_step   ?? null,
+              volatility:      _tr?.volatility ?? null,
             }).catch(() => {});
           }
           if (closeResult?.base_mint) {
@@ -217,6 +221,7 @@ function scheduleStopLossConfirmation(positionAddress) {
           const closeResult = await closePosition({ position_address: positionAddress, reason: resolved.reason });
           log("state", `[Stop Loss] Direct close succeeded for ${positionAddress}`);
           if (closeResult?.success && telegramEnabled()) {
+            const _tr = getTrackedPosition(positionAddress);
             notifyClose({
               pair:            closeResult.pool_name || positionAddress.slice(0, 8),
               pnlUsd:          closeResult.pnl_usd          ?? 0,
@@ -229,6 +234,9 @@ function scheduleStopLossConfirmation(positionAddress) {
               depositedUsd:    closeResult.deposited_usd,
               withdrawnUsd:    closeResult.withdrawn_usd,
               positionAddress,
+              strategy:        _tr?.strategy   ?? null,
+              binStep:         _tr?.bin_step   ?? null,
+              volatility:      _tr?.volatility ?? null,
             }).catch(() => {});
           }
           if (closeResult?.base_mint) {
@@ -905,6 +913,7 @@ Summarize the current portfolio health, total fees earned, and performance of al
                 const closeResult = await closePosition({ position_address: p.position, reason });
                 log("state", `[Velocity SL] Close succeeded for ${p.position}`);
                 if (closeResult?.success && telegramEnabled()) {
+                  const _tr = getTrackedPosition(p.position);
                   notifyClose({
                     pair:            closeResult.pool_name || p.pair,
                     pnlUsd:          closeResult.pnl_usd          ?? 0,
@@ -917,6 +926,9 @@ Summarize the current portfolio health, total fees earned, and performance of al
                     depositedUsd:    closeResult.deposited_usd,
                     withdrawnUsd:    closeResult.withdrawn_usd,
                     positionAddress: p.position,
+                    strategy:        _tr?.strategy   ?? null,
+                    binStep:         _tr?.bin_step   ?? null,
+                    volatility:      _tr?.volatility ?? null,
                   }).catch(() => {});
                 }
                 if (closeResult?.base_mint) {

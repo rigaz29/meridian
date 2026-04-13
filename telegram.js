@@ -411,65 +411,104 @@ export async function notifyDeploy({ pair, amountSol, position, tx, priceRange, 
 export async function notifyClose({
   pair, pnlUsd, pnlPct, feesEarned, reason, rangeEfficiency,
   ageMinutes, deploySol, depositedUsd, withdrawnUsd, positionAddress,
+  strategy, binStep, volatility,
 }) {
   if (hasActiveLiveMessage()) return;
 
-  const profit = Number(pnlUsd ?? 0) >= 0;
-  const icon   = profit ? "🟢" : "🔴";
+  const pnlNum    = Number(pnlUsd ?? 0);
+  const pnlPctNum = Number(pnlPct ?? 0);
+  const profit    = pnlNum >= 0;
 
-  // ── Reason (prominent, at top) ───────────────────────────────
-  const reasonLabel = (() => {
-    if (!reason) return null;
-    const r = String(reason);
-    if (/trailing/i.test(r))                return `🔔 ${r}`;
-    if (/stop.?loss/i.test(r))              return `🛑 ${r}`;
-    if (/take.?profit|tp/i.test(r))         return `🎯 ${r}`;
-    if (/out.?of.?range|oor/i.test(r))      return `📊 ${r}`;
-    if (/low.?yield|yield/i.test(r))        return `📉 ${r}`;
-    if (/pump|above.?range/i.test(r))       return `🚀 ${r}`;
-    return `📌 ${r}`;
+  // ── Exit type → icon + label ──────────────────────────────────
+  const exitType = (() => {
+    const r = String(reason ?? "");
+    if (/trailing/i.test(r))           return { icon: "🔔", label: "Trailing TP" };
+    if (/velocity/i.test(r))           return { icon: "⚡", label: "Velocity SL" };
+    if (/stop.?loss/i.test(r))         return { icon: "🛑", label: "Stop Loss" };
+    if (/take.?profit|static.?tp/i.test(r)) return { icon: "🎯", label: "Take Profit" };
+    if (/downside.*oor|oor.*4b/i.test(r))   return { icon: "📉", label: "Downside OOR" };
+    if (/upside.*oor|out.?of.?range/i.test(r)) return { icon: "📊", label: "OOR" };
+    if (/low.?yield|yield/i.test(r))   return { icon: "😴", label: "Low Yield" };
+    if (/pump|above.?range/i.test(r))  return { icon: "🚀", label: "Pumped OOR" };
+    if (/user|manual/i.test(r))        return { icon: "👤", label: "Manual" };
+    return { icon: "📌", label: "Closed" };
   })();
 
-  // ── PnL line ─────────────────────────────────────────────────
-  const pnlLine = `💵 PnL: <b>${fmtUsd(pnlUsd)}</b> (<b>${fmtPct(pnlPct)}</b>)`;
+  const resultIcon = profit ? "🟢" : "🔴";
 
-  // ── Fees line ─────────────────────────────────────────────────
-  const fees = Number(feesEarned ?? 0);
-  const feesLine = fees > 0
-    ? `\n💎 Fees earned: <b>+$${fees.toFixed(2)}</b>`
-    : "";
-
-  // ── Age + deploy ──────────────────────────────────────────────
-  const ageParts = [];
-  if (ageMinutes != null) {
-    const h = Math.floor(ageMinutes / 60);
-    const m = ageMinutes % 60;
-    ageParts.push(h > 0 ? `${h}h ${m}m` : `${m}m`);
+  // ── Format age ────────────────────────────────────────────────
+  function fmtAge(min) {
+    if (min == null) return "?";
+    const h = Math.floor(min / 60);
+    const m = min % 60;
+    return h > 0 ? `${h}h ${m}m` : `${m}m`;
   }
-  if (deploySol != null) ageParts.push(`${Number(deploySol).toFixed(3)} SOL deployed`);
-  const ageLine = ageParts.length > 0 ? `\n⏱ ${ageParts.join("  │  ")}` : "";
 
-  // ── Capital flow (deposited → withdrawn) ─────────────────────
-  const flowLine = (depositedUsd != null && withdrawnUsd != null && depositedUsd > 0)
-    ? `\n💰 $${Number(depositedUsd).toFixed(2)} → $${Number(withdrawnUsd).toFixed(2)}`
-    : "";
+  // ── Capital flow ──────────────────────────────────────────────
+  const dep  = Number(depositedUsd ?? 0);
+  const with_ = Number(withdrawnUsd ?? 0);
+  const flowStr = dep > 0
+    ? `$${dep.toFixed(2)} → $${with_.toFixed(2)}`
+    : null;
 
-  // ── Range efficiency ─────────────────────────────────────────
-  const effLine = rangeEfficiency != null
-    ? `\n📐 In-range: <b>${Number(rangeEfficiency).toFixed(0)}%</b> ${progressBar(rangeEfficiency, 12)}`
-    : "";
+  // ── Fees ──────────────────────────────────────────────────────
+  const fees = Number(feesEarned ?? 0);
 
-  // ── Position address (short) ──────────────────────────────────
-  const addrLine = positionAddress
-    ? `\n🔑 <code>${positionAddress.slice(0, 16)}…</code>`
-    : "";
+  // ── Range efficiency bar ──────────────────────────────────────
+  const eff = rangeEfficiency != null ? Number(rangeEfficiency) : null;
+  const effBar = eff != null
+    ? `${progressBar(eff, 14)} ${eff.toFixed(0)}%`
+    : null;
 
+  // ── Pool meta ────────────────────────────────────────────────
+  const metaParts = [];
+  if (binStep)   metaParts.push(`bs=${binStep}`);
+  if (strategy)  metaParts.push(strategy);
+  if (volatility != null) metaParts.push(`vol=${Number(volatility).toFixed(2)}`);
+  const metaStr = metaParts.length ? metaParts.join("  ·  ") : null;
+
+  // ── Reason detail (strip label prefix if redundant) ──────────
+  const reasonDetail = (() => {
+    if (!reason) return null;
+    const r = String(reason);
+    // Strip "Trailing TP: " / "Velocity SL: " prefix — already shown in header
+    return r.replace(/^(Trailing TP|Velocity SL|Stop Loss|Take Profit|OOR)[:\s-]*/i, "").trim() || null;
+  })();
+
+  // ── Build message ─────────────────────────────────────────────
   const lines = [
-    `${icon} <b>CLOSED — ${esc(pair)}</b>`,
+    // Header
+    `${exitType.icon} <b>${esc(exitType.label)}</b>  ${resultIcon} <b>${esc(pair)}</b>`,
     `<code>${DIV}</code>`,
-    reasonLabel ? esc(reasonLabel) : null,
-    reasonLabel ? `<code>${DIV}</code>` : null,
-    pnlLine + feesLine + ageLine + flowLine + effLine + addrLine,
+
+    // PnL — most important, biggest visual weight
+    `<b>${profit ? "▲" : "▼"} ${fmtPct(pnlPctNum)}</b>  <code>${fmtUsd(pnlNum)}</code>`,
+
+    // Capital flow
+    flowStr ? `💰 ${esc(flowStr)}` : null,
+
+    // Fees
+    fees > 0 ? `💎 Fees  <code>+$${fees.toFixed(2)}</code>` : null,
+
+    `<code>${DIV}</code>`,
+
+    // Position stats
+    `⏱ Held  <b>${esc(fmtAge(ageMinutes))}</b>` +
+      (deploySol != null ? `   ·   ◎${Number(deploySol).toFixed(3)} deployed` : ""),
+
+    effBar ? `📐 In-range  <code>${esc(effBar)}</code>` : null,
+
+    metaStr ? `⚙️ <i>${esc(metaStr)}</i>` : null,
+
+    // Reason detail (only if there's meaningful extra info)
+    reasonDetail
+      ? `<code>${DIV}</code>\n<i>${esc(reasonDetail)}</i>`
+      : null,
+
+    // Position address
+    positionAddress
+      ? `<code>${DIV}</code>\n🔑 <code>${positionAddress.slice(0, 20)}…</code>`
+      : null,
   ].filter(Boolean);
 
   await sendHTML(lines.join("\n"));

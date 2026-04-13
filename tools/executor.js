@@ -12,7 +12,7 @@ import {
 import { getWalletBalances, swapToken } from "./wallet.js";
 import { studyTopLPers } from "./study.js";
 import { addLesson, clearAllLessons, clearPerformance, removeLessonsByKeyword, getPerformanceHistory, pinLesson, unpinLesson, listLessons, bootstrapFromHistory } from "../lessons.js";
-import { setPositionInstruction } from "../state.js";
+import { setPositionInstruction, getTrackedPosition } from "../state.js";
 
 import { getPoolMemory, addPoolNote } from "../pool-memory.js";
 import { addStrategy, listStrategies, getStrategy, setActiveStrategy, removeStrategy } from "../strategy-library.js";
@@ -322,6 +322,7 @@ export async function executeTool(name, args) {
       } else if (name === "deploy_position") {
         notifyDeploy({ pair: result.pool_name || args.pool_name || args.pool_address?.slice(0, 8), amountSol: args.amount_y ?? args.amount_sol ?? 0, position: result.position, tx: result.txs?.[0] ?? result.tx, priceRange: result.price_range, binStep: result.bin_step, baseFee: result.base_fee, strategy: args.strategy }).catch(() => {});
       } else if (name === "close_position") {
+        const _tr = getTrackedPosition(args.position_address);
         notifyClose({
           pair:            result.pool_name || args.position_address?.slice(0, 8),
           pnlUsd:          result.pnl_usd          ?? 0,
@@ -334,6 +335,9 @@ export async function executeTool(name, args) {
           depositedUsd:    result.deposited_usd,
           withdrawnUsd:    result.withdrawn_usd,
           positionAddress: args.position_address,
+          strategy:        _tr?.strategy   ?? null,
+          binStep:         _tr?.bin_step   ?? null,
+          volatility:      _tr?.volatility ?? null,
         }).catch(() => {});
         // Note low-yield closes in pool memory so screener avoids redeploying
         if (args.reason && args.reason.toLowerCase().includes("yield")) {
