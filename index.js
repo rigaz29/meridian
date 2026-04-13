@@ -11,7 +11,7 @@ import { evolveThresholds, getPerformanceSummary, bootstrapFromHistory } from ".
 import { registerCronRestarter } from "./tools/executor.js";
 import { startPolling, stopPolling, sendMessage, sendHTML, notifyOutOfRange, notifyClose, isEnabled as telegramEnabled, createLiveMessage, formatPositionsList } from "./telegram.js";
 import { generateBriefing } from "./briefing.js";
-import { getLastBriefingDate, setLastBriefingDate, getTrackedPosition, setPositionInstruction, updatePnlAndCheckExits, isInMiddleThird, queuePeakConfirmation, resolvePendingPeak, queueTrailingDropConfirmation, resolvePendingTrailingDrop, queueStopLossConfirmation, resolvePendingStopLoss } from "./state.js";
+import { getLastBriefingDate, setLastBriefingDate, getTrackedPosition, setPositionInstruction, updatePnlAndCheckExits, queuePeakConfirmation, resolvePendingPeak, queueTrailingDropConfirmation, resolvePendingTrailingDrop, queueStopLossConfirmation, resolvePendingStopLoss } from "./state.js";
 import { getActiveStrategy } from "./strategy-library.js";
 import { recordPositionSnapshot, recallForPool, addPoolNote } from "./pool-memory.js";
 import { checkSmartWalletsOnPool } from "./smart-wallets.js";
@@ -93,6 +93,7 @@ const _peakConfirmTimers = new Map();
 const _trailingDropConfirmTimers = new Map();
 const _stopLossConfirmTimers = new Map();
 const _pnlHistory = new Map(); // positionAddress → [{ts, pnl_pct}] — for velocity SL
+const _closingPositions = new Set(); // mutex — prevents concurrent close attempts on same position
 const TRAILING_PEAK_CONFIRM_DELAY_MS = 15_000;
 const TRAILING_PEAK_CONFIRM_TOLERANCE = 0.85;
 const TRAILING_DROP_CONFIRM_DELAY_MS = 15_000;
@@ -149,7 +150,12 @@ function scheduleTrailingDropConfirmation(positionAddress) {
         TRAILING_DROP_CONFIRM_TOLERANCE_PCT,
       );
       if (resolved?.confirmed) {
+        if (_closingPositions.has(positionAddress)) {
+          log("state", `[Trailing TP] Skipping duplicate close for ${positionAddress} — already closing`);
+          return;
+        }
         log("state", `[Trailing recheck] Confirmed trailing exit for ${positionAddress} — closing directly`);
+        _closingPositions.add(positionAddress);
         try {
           const closeResult = await closePosition({ position_address: positionAddress, reason: resolved.reason });
           log("state", `[Trailing TP] Direct close succeeded for ${positionAddress}`);
@@ -174,6 +180,8 @@ function scheduleTrailingDropConfirmation(positionAddress) {
         } catch (closeErr) {
           log("cron_error", `[Trailing TP] Direct close failed for ${positionAddress}: ${closeErr.message} — falling back to management cycle`);
           runManagementCycle({ silent: true }).catch((e) => log("cron_error", `Trailing recheck management failed: ${e.message}`));
+        } finally {
+          _closingPositions.delete(positionAddress);
         }
       }
     } catch (error) {
@@ -199,7 +207,12 @@ function scheduleStopLossConfirmation(positionAddress) {
         STOP_LOSS_CONFIRM_TOLERANCE_PCT,
       );
       if (resolved?.confirmed) {
+        if (_closingPositions.has(positionAddress)) {
+          log("state", `[Stop Loss] Skipping duplicate close for ${positionAddress} — already closing`);
+          return;
+        }
         log("state", `[SL recheck] Confirmed stop loss for ${positionAddress} — closing directly`);
+        _closingPositions.add(positionAddress);
         try {
           const closeResult = await closePosition({ position_address: positionAddress, reason: resolved.reason });
           log("state", `[Stop Loss] Direct close succeeded for ${positionAddress}`);
@@ -224,6 +237,8 @@ function scheduleStopLossConfirmation(positionAddress) {
         } catch (closeErr) {
           log("cron_error", `[Stop Loss] Direct close failed for ${positionAddress}: ${closeErr.message} — falling back to management cycle`);
           runManagementCycle({ silent: true }).catch((e) => log("cron_error", `SL recheck management failed: ${e.message}`));
+        } finally {
+          _closingPositions.delete(positionAddress);
         }
       }
     } catch (error) {
@@ -305,6 +320,7 @@ export async function runManagementCycle({ silent = false } = {}) {
     // JS trailing TP check
     const exitMap = new Map();
     for (const p of positionData) {
+      if (_closingPositions.has(p.position)) continue; // already being closed by direct path
       if (!p.pnl_pct_suspicious && queuePeakConfirmation(p.position, p.pnl_pct)) {
         schedulePeakConfirmation(p.position);
       }
@@ -357,8 +373,7 @@ export async function runManagementCycle({ silent = false } = {}) {
       })();
 
       // Rule 2: take profit (skip if trailing TP is active — trailing handles the exit)
-      // Also skip when active bin is in middle third — rapid PnL swings there are normal LP activity
-      if (!pnlSuspect && !tracked?.trailing_active && p.pnl_pct != null && p.pnl_pct >= config.management.takeProfitFeePct && !isInMiddleThird(p)) {
+      if (!pnlSuspect && !tracked?.trailing_active && p.pnl_pct != null && p.pnl_pct >= config.management.takeProfitFeePct) {
         actionMap.set(p.position, { action: "CLOSE", rule: 2, reason: "take profit" });
         continue;
       }
@@ -846,8 +861,7 @@ Summarize the current portfolio health, total fees earned, and performance of al
 
       for (const p of result.positions) {
         // ── Velocity SL: detect rapid PnL freefall ─────────────────────
-        // Skip when active bin is in middle third — rapid swings there are normal LP activity
-        if (!p.pnl_pct_suspicious && p.pnl_pct != null && !isInMiddleThird(p)) {
+        if (!p.pnl_pct_suspicious && p.pnl_pct != null) {
           const now = Date.now();
           const windowMs = (config.management.pnlVelocityWindowSec ?? 90) * 1000;
           const hist = _pnlHistory.get(p.position) || [];
@@ -867,10 +881,12 @@ Summarize the current portfolio health, total fees earned, and performance of al
           if (velocityThreshold > 0 && oldest && oldest !== trimmed[trimmed.length - 1] && (p.age_minutes ?? 0) >= minAge) {
             const drop = oldest.pnl_pct - p.pnl_pct;
             if (drop >= effectiveVelocityThreshold) {
+              if (_closingPositions.has(p.position)) continue; // already being closed
               const windowSec = Math.round((now - oldest.ts) / 1000);
               const reason = `Velocity SL: PnL dropped ${drop.toFixed(2)}% in ${windowSec}s (${oldest.pnl_pct.toFixed(2)}% → ${p.pnl_pct.toFixed(2)}%)`;
               log("state", `[Velocity SL] ${p.pair}: ${reason}`);
               _pnlHistory.delete(p.position);
+              _closingPositions.add(p.position);
               try {
                 const closeResult = await closePosition({ position_address: p.position, reason });
                 log("state", `[Velocity SL] Close succeeded for ${p.position}`);
@@ -895,12 +911,15 @@ Summarize the current portfolio health, total fees earned, and performance of al
               } catch (closeErr) {
                 log("cron_error", `[Velocity SL] Direct close failed for ${p.position}: ${closeErr.message} — triggering management`);
                 runManagementCycle({ silent: true }).catch((e) => log("cron_error", `Velocity SL management failed: ${e.message}`));
+              } finally {
+                _closingPositions.delete(p.position);
               }
               continue;
             }
           }
         }
 
+        if (_closingPositions.has(p.position)) continue; // already being closed by direct path
         if (!p.pnl_pct_suspicious && queuePeakConfirmation(p.position, p.pnl_pct)) {
           schedulePeakConfirmation(p.position);
         }
