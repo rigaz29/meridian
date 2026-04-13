@@ -354,8 +354,9 @@ export function computeStrategyRecommendation(poolAddress, signals = {}) {
     smart_money_buy = false,
     volatility = 2.5,
     fee_tvl_ratio = 0,
-    price_change_pct = null,
+    price_change_pct: _price_change_pct = null,
   } = signals;
+  const price_change_pct = _price_change_pct != null ? parseFloat(_price_change_pct) : null;
 
   // Priority 1: smart money
   if (smart_money_buy) {
