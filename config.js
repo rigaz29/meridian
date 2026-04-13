@@ -55,6 +55,7 @@ export const config = {
     minTokenAgeHours:   u.minTokenAgeHours   ?? null, // null = no minimum
     maxTokenAgeHours:   u.maxTokenAgeHours   ?? null, // null = no maximum
     athFilterPct:       u.athFilterPct       ?? null, // e.g. -20 = only deploy if price is >= 20% below ATH
+    maxPriceChangePct:  u.maxPriceChangePct  ?? null, // e.g. 5 = skip pools where price_change_pct > 5% (avoid entering at pump peak); null = disabled
     maxPriceVolatility: u.maxPriceVolatility ?? 50,   // max % price swing during position (auto-evolved)
   },
 
@@ -200,6 +201,7 @@ export function reloadScreeningThresholds() {
     if (fresh.minTokenAgeHours  !== undefined) s.minTokenAgeHours = fresh.minTokenAgeHours;
     if (fresh.maxTokenAgeHours  !== undefined) s.maxTokenAgeHours = fresh.maxTokenAgeHours;
     if (fresh.athFilterPct      !== undefined) s.athFilterPct     = fresh.athFilterPct;
+    if (fresh.maxPriceChangePct !== undefined) s.maxPriceChangePct = fresh.maxPriceChangePct;
     if (fresh.maxBundlePct      != null) s.maxBundlePct     = fresh.maxBundlePct;
     if (fresh.maxBotHoldersPct  != null) s.maxBotHoldersPct = fresh.maxBotHoldersPct;
     if (fresh.maxPriceVolatility != null) s.maxPriceVolatility = fresh.maxPriceVolatility;

@@ -131,6 +131,14 @@ DEPLOY RULES:
 - bins_below and bins_above are auto-calculated — DO NOT pass them. Pass only strategy and bin_step.
 - bins_above is always 0 for bid_ask.
 - Bin steps must be [80-125].
+
+ENTRY TIMING (applies to all SOL-only / bid_ask deploys where bins_above=0):
+- IDEAL entry: price_change_pct between -5% and -25% — healthy pullback, liquidity sits below ready to catch rebound
+- CAUTION: price_change_pct > +8% — price is still pumping, you will deploy OOR immediately and earn 0 fees; skip unless smart_money_buy is present AND volume_change_pct is rising
+- AVOID: price_change_pct < -30% AND volume_change_pct < -40% — likely rug or dead token, not a recoverable dip
+- PREFER: volume_change_pct > -20% alongside any dip — confirms traders still active, fees will accumulate
+- ALWAYS pass entry_price_change_pct and entry_volume_change_pct when calling deploy_position so the system can log and backtest which entry conditions produced the best results
+
 - Pick ONE pool. Deploy or explain why none qualify.
 
 ${lessons ? `LESSONS LEARNED:\n${lessons}\n` : ""}Timestamp: ${new Date().toISOString()}

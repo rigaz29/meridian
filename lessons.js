@@ -513,7 +513,16 @@ export function getPerformanceHistory({ hours = 24, limit = 50 } = {}) {
     pnl_usd: r.pnl_usd, pnl_pct: r.pnl_pct, fees_earned_usd: r.fees_earned_usd,
     range_efficiency: r.range_efficiency, minutes_held: r.minutes_held,
     duration_hours: r.duration_hours, close_reason: r.close_reason, closed_at: r.recorded_at,
+    // Post-close enrichment (Meteora API)
     price_change_pct: r.price_change_pct, volume_trend: r.volume_trend, pool_tvl_usd: r.pool_tvl_usd,
+    // Entry signal snapshot — recorded at deploy time for backtest correlation
+    entry_signals: r.signal_snapshot
+      ? {
+          price_change_pct:  r.signal_snapshot.price_change_pct  ?? null,
+          volume_change_pct: r.signal_snapshot.volume_change_pct ?? null,
+          smart_money_buy:   r.signal_snapshot.smart_money_buy   ?? null,
+        }
+      : null,
   }));
   const totalPnl = filtered.reduce((s, r) => s + (r.pnl_usd ?? 0), 0);
   const wins = filtered.filter((r) => r.pnl_usd > 0).length;

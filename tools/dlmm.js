@@ -121,6 +121,10 @@ export async function deployPosition({
   fee_tvl_ratio,
   organic_score,
   initial_value_usd,
+  // entry signal snapshot — for backtest logging
+  entry_price_change_pct,
+  entry_volume_change_pct,
+  entry_smart_money_buy,
 }) {
   pool_address = normalizeMint(pool_address);
   const activeStrategy = strategy || config.strategy.strategy;
@@ -279,6 +283,12 @@ export async function deployPosition({
     log("deploy", `SUCCESS — ${txHashes.length} tx(s): ${txHashes[0]}`);
 
     _positionsCacheAt = 0;
+    // Build entry signal snapshot for backtest/review logging
+    const entrySignals = {};
+    if (entry_price_change_pct  != null) entrySignals.price_change_pct  = entry_price_change_pct;
+    if (entry_volume_change_pct != null) entrySignals.volume_change_pct = entry_volume_change_pct;
+    if (entry_smart_money_buy   != null) entrySignals.smart_money_buy   = entry_smart_money_buy;
+
     trackPosition({
       position: newPosition.publicKey.toString(),
       pool: pool_address,
@@ -293,6 +303,7 @@ export async function deployPosition({
       amount_x: finalAmountX,
       active_bin: activeBin.binId,
       initial_value_usd,
+      signal_snapshot: Object.keys(entrySignals).length > 0 ? entrySignals : null,
     });
 
     const activePrice = parseFloat(activeBin.price);
@@ -1000,6 +1011,9 @@ export async function closePosition({ position_address, reason }) {
         minutes_in_range: minutesHeld - minutesOOR,
         minutes_held: minutesHeld,
         close_reason: reason || "agent decision",
+        signal_snapshot: tracked.signal_snapshot || null,
+        deployed_at: tracked.deployed_at,
+        base_mint: tracked.base_mint || null,
       });
 
       return {

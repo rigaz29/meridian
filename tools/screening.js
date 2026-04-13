@@ -230,6 +230,22 @@ export async function getTopCandidates({ limit = 10 } = {}) {
       return true;
     }));
 
+    // Price change filter — skip pools that are still pumping (bad entry for bins_above=0)
+    const maxPriceChange = config.screening.maxPriceChangePct;
+    if (maxPriceChange != null) {
+      const before = eligible.length;
+      eligible.splice(0, eligible.length, ...eligible.filter((p) => {
+        if (p.price_change_pct == null) return true; // no data → don't filter
+        if (p.price_change_pct > maxPriceChange) {
+          log("screening", `Price filter: dropped ${p.name} — price_change ${p.price_change_pct}% > max ${maxPriceChange}%`);
+          pushFilteredReason(filteredOut, p, `price_change ${p.price_change_pct}% > max ${maxPriceChange}%`);
+          return false;
+        }
+        return true;
+      }));
+      if (eligible.length < before) log("screening", `Price change filter removed ${before - eligible.length} pool(s)`);
+    }
+
     // ATH filter — drop pools where price is too close to ATH
     const athFilter = config.screening.athFilterPct;
     if (athFilter != null) {

@@ -206,7 +206,10 @@ WARNING: This executes a real on-chain transaction. Check DRY_RUN mode.`,
           volatility: { type: "number", description: "Pool volatility at deploy time (0–5 scale). ALWAYS pass this — used to auto-scale range width: low vol→narrower range (higher fee concentration), high vol→wider range (fewer OOR exits)." },
           fee_tvl_ratio: { type: "number", description: "fee/TVL ratio at deploy time" },
           organic_score: { type: "number", description: "Base token organic score at deploy time" },
-          initial_value_usd: { type: "number", description: "Estimated USD value being deployed" }
+          initial_value_usd: { type: "number", description: "Estimated USD value being deployed" },
+          entry_price_change_pct: { type: "number", description: "Price change % at entry (from pool data). Pass for backtest logging — e.g. -12.5 means price was down 12.5% when you deployed." },
+          entry_volume_change_pct: { type: "number", description: "Volume change % at entry (from pool data). Pass for backtest logging." },
+          entry_smart_money_buy: { type: "boolean", description: "Whether smart_money_buy tag was present at entry. Pass for backtest logging." }
         },
         required: ["pool_address"]
       }

@@ -420,6 +420,7 @@ All fields are optional — defaults shown. Edit `user-config.json`.
 | `minTokenAgeHours` | `null` | Minimum token age in hours (null = no filter) |
 | `maxTokenAgeHours` | `null` | Maximum token age in hours (null = no filter) |
 | `athFilterPct` | `null` | Only deploy if price is ≥ X% below ATH (e.g. `-20`) |
+| `maxPriceChangePct` | `null` | Skip pools where `price_change_pct` exceeds this value in the current timeframe (e.g. `8` = skip if price is up >8%). Prevents entering at pump peaks when using `bins_above=0`. `null` = disabled. |
 
 ### Management
 
@@ -496,6 +497,54 @@ Automatically tracks which screening signals predict profitable positions and ad
 | `darwinFloor` | `0.3` | Minimum signal weight |
 | `darwinCeiling` | `2.5` | Maximum signal weight |
 | `darwinMinSamples` | `10` | Minimum positions before adjusting a signal's weight |
+
+---
+
+## Entry timing (bins_above=0 / SOL-only strategy)
+
+When deploying SOL-only (`bid_ask` or explicit `bins_above=0`), all liquidity sits **below** the current price. You earn fees only while price trades inside that range — so the ideal entry is a pullback, not a pump.
+
+### Entry signal guidelines
+
+| Condition | `price_change_pct` | Action |
+|---|---|---|
+| Healthy pullback | `-5%` to `-25%` | **PREFER** — liquidity sits below, ready to catch rebound |
+| Flat / ranging | `-5%` to `+5%` | OK — fee farming while price consolidates |
+| Still pumping | `> +8%` | **CAUTION** — may deploy OOR immediately; only acceptable with `smart_money_buy` + rising volume |
+| Sharp dump | `< -30%` AND volume collapsing | **AVOID** — likely rug, not a recoverable dip |
+
+The screener agent applies these heuristics automatically. You can also enforce the pump guard as a hard filter:
+
+```bash
+node cli.js config set maxPriceChangePct 8
+```
+
+This drops any pool from the candidate list where `price_change_pct` exceeds 8% in the current screening timeframe.
+
+### Entry signal logging & backtest
+
+Every deploy records the entry market state as a `signal_snapshot` (stored in `state.json` and forwarded to `lessons.json` when the position closes). Retrieve it via:
+
+```bash
+node cli.js performance --limit 50
+```
+
+Each closed position now includes an `entry_signals` block:
+
+```json
+{
+  "pool_name": "TOKEN/SOL",
+  "pnl_pct": 4.2,
+  "range_efficiency": 78.3,
+  "entry_signals": {
+    "price_change_pct": -12.5,
+    "volume_change_pct": 3.1,
+    "smart_money_buy": true
+  }
+}
+```
+
+Use this to correlate which entry conditions (price dip depth, volume health, smart money presence) produced the best PnL and range efficiency over time.
 
 ---
 
