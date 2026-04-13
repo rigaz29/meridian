@@ -283,7 +283,7 @@ async function maybeRunMissedBriefing() {
 
 function stopCronJobs() {
   for (const task of _cronTasks) task.stop();
-  if (_cronTasks._pnlPollInterval) clearInterval(_cronTasks._pnlPollInterval);
+  if (_cronTasks._pnlPollTimeout) clearTimeout(_cronTasks._pnlPollTimeout);
   _cronTasks = [];
 }
 
@@ -852,10 +852,16 @@ Summarize the current portfolio health, total fees earned, and performance of al
     await maybeRunMissedBriefing();
   }, { timezone: 'UTC' });
 
-  // Lightweight 30s PnL poller — updates trailing TP state between management cycles, no LLM
+  // Lightweight PnL poller (10–12s random) — updates trailing TP / velocity SL state between management cycles, no LLM
   let _pnlPollBusy = false;
-  const pnlPollInterval = setInterval(async () => {
-    if (_managementBusy || _screeningBusy || _pnlPollBusy) return;
+  let _pnlPollTimeout = null;
+  const _pnlPollNextDelay = () => 10_000 + Math.random() * 2_000; // 10–12s random
+
+  const _runPnlPoll = async () => {
+    if (_managementBusy || _screeningBusy || _pnlPollBusy) {
+      _pnlPollTimeout = setTimeout(_runPnlPoll, _pnlPollNextDelay());
+      return;
+    }
     _pnlPollBusy = true;
     try {
       const result = await getMyPositions({ force: true, silent: true }).catch(() => null);
@@ -959,12 +965,14 @@ Summarize the current portfolio health, total fees earned, and performance of al
       }
     } finally {
       _pnlPollBusy = false;
+      _pnlPollTimeout = setTimeout(_runPnlPoll, _pnlPollNextDelay());
     }
-  }, 30_000);
+  };
+  _pnlPollTimeout = setTimeout(_runPnlPoll, _pnlPollNextDelay());
 
   _cronTasks = [mgmtTask, screenTask, healthTask, briefingTask, briefingWatchdog];
-  // Store interval ref so stopCronJobs can clear it
-  _cronTasks._pnlPollInterval = pnlPollInterval;
+  // Store timeout ref so stopCronJobs can clear it
+  _cronTasks._pnlPollTimeout = _pnlPollTimeout;
   log("cron", `Cycles started — management every ${config.schedule.managementIntervalMin}m, screening every ${config.schedule.screeningIntervalMin}m`);
 }
 
