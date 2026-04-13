@@ -186,13 +186,23 @@ Before `deploy_position` executes:
 Auto-calculated in `tools/dlmm.js` based on actual pool `bin_step` and `volatility`. LLM never passes bins values.
 
 ```
-targetDownside = min(0.55, 0.25 + (vol/5) * 0.30)
-bins_below = min(50, calcBinsFromTarget(binStep, targetDownside))
+targetDownside = min(0.50, 0.32 + (vol/5) * 0.09)
+bins_below = min(cap, calcBinsFromTarget(binStep, targetDownside))
 ```
 
-- Low volatility (0) → ~25% downside coverage
-- High volatility (5) → ~55% downside coverage, capped at 50 bins
-- `bins_above`: `spot` → calculated from `targetUpside = min(0.35, 0.15 + (vol/5) * 0.15)`; `bid_ask` → always 0
+Caps per bin_step (based on historical performance sweet spots):
+- `binStep >= 125` → cap 35 bins (~31–35% downside)
+- `binStep >= 100` → cap 50 bins (~34–39% downside)
+- `binStep < 100`  → cap 50 bins (~33–35% downside)
+
+Result by bin_step:
+- bs=80:  always capped at 50 bins (~33% downside)
+- bs=100: 42 bins at vol=1 → 50 bins at vol=4+ (~34–39% downside)
+- bs=125: 34 bins at vol=1 → 35 bins at vol=2+ (~31–35% downside)
+
+`bins_above`: only non-zero if `amount_x > 0` (token X deployed), otherwise always 0.
+- With token X: `spot`/`curve` → `targetUpside = min(0.35, 0.15 + (vol/5) * 0.15)`
+- SOL-only deploy or `bid_ask` → always 0
 
 ---
 

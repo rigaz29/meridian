@@ -126,16 +126,17 @@ export async function deployPosition({
   const activeStrategy = strategy || config.strategy.strategy;
 
   const vol = (typeof volatility === "number" && volatility >= 0) ? volatility : 2.5;
-  const targetDownside = Math.min(0.55, 0.25 + (vol / 5) * 0.30);  // vol=0→25%, vol=2.5→40%, vol=5→55%
+  const targetDownside = Math.min(0.50, 0.32 + (vol / 5) * 0.09);  // vol=0→32%, vol=2.5→36.5%, vol=5→41%, cap=50%
   const targetUpside   = Math.min(0.35, 0.15 + (vol / 5) * 0.15);  // vol=0→15%, vol=2.5→22.5%, vol=5→30%
 
   // Preliminary estimate using provided bin_step (used for DRY_RUN and wide-range check)
   const estBinStep = bin_step ?? 100;
-  const estMaxBinsBelow = estBinStep >= 125 ? 40 : estBinStep >= 100 ? 55 : 60;
+  const estMaxBinsBelow = estBinStep >= 125 ? 35 : estBinStep >= 100 ? 50 : 50;
   const activeBinsBelow = bins_below != null
     ? Math.min(bins_below, estMaxBinsBelow)
     : Math.min(estMaxBinsBelow, calcBinsFromTarget(estBinStep, targetDownside));
-  const activeBinsAbove = activeStrategy === "bid_ask"
+  const isSolOnly = !amount_x || amount_x <= 0;
+  const activeBinsAbove = (activeStrategy === "bid_ask" || isSolOnly)
     ? 0
     : (bins_above != null ? bins_above : calcBinsFromTarget(estBinStep, targetUpside, true));
 
@@ -174,11 +175,11 @@ export async function deployPosition({
   // Recalculate bins using actual pool bin_step (unless explicitly provided by caller)
   // targetDownside/targetUpside already computed above using volatility
   const actualBinStep = pool.lbPair.binStep;
-  const maxBinsBelow = actualBinStep >= 125 ? 40 : actualBinStep >= 100 ? 55 : 60;
+  const maxBinsBelow = actualBinStep >= 125 ? 35 : actualBinStep >= 100 ? 50 : 50;
   const finalBinsBelow = bins_below != null
     ? Math.min(bins_below, maxBinsBelow)
     : Math.min(maxBinsBelow, calcBinsFromTarget(actualBinStep, targetDownside));
-  const finalBinsAbove = activeStrategy === "bid_ask"
+  const finalBinsAbove = (activeStrategy === "bid_ask" || (amount_x ?? 0) <= 0)
     ? 0
     : (bins_above != null ? bins_above : calcBinsFromTarget(actualBinStep, targetUpside, true));
 
