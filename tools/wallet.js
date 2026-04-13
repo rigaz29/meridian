@@ -219,7 +219,7 @@ export async function swapToken({
 async function swapViaQuoteApi({ wallet, connection, input_mint, output_mint, amountStr }) {
   // ─── Get quote ─────────────────────────────────────────────
   const quoteRes = await fetch(
-    `${JUPITER_QUOTE_API}/quote?inputMint=${input_mint}&outputMint=${output_mint}&amount=${amountStr}&slippageBps=300`,
+    `${JUPITER_QUOTE_API}/quote?inputMint=${input_mint}&outputMint=${output_mint}&amount=${amountStr}&slippageBps=500`,
     { headers: { "x-api-key": JUPITER_API_KEY } }
   );
   if (!quoteRes.ok) throw new Error(`Quote failed: ${quoteRes.status} ${await quoteRes.text()}`);
