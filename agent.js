@@ -140,7 +140,13 @@ function buildMessages(systemPrompt, sessionHistory, goal, providerMode = "syste
 
 function isSystemRoleError(error) {
   const message = String(error?.message || error?.error?.message || error || "");
-  return /invalid message role:\s*system/i.test(message);
+  return (
+    /invalid message role:\s*system/i.test(message) ||
+    /role.*system.*not (supported|allowed)/i.test(message) ||
+    /system.*role.*invalid/i.test(message) ||
+    /does not support.*system/i.test(message) ||
+    /unsupported.*role.*system/i.test(message)
+  );
 }
 
 function isToolChoiceRequiredError(error) {
@@ -177,7 +183,6 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
   let sawToolCall = false;
   let noToolRetryCount = 0;
 
-  let emptyStreak = 0;
   for (let step = 0; step < maxSteps; step++) {
     log("agent", `Step ${step + 1}/${maxSteps}`);
 
@@ -195,18 +200,35 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
 
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
+          // MiniMax requires temperature in (0.0, 1.0] — clamp to avoid API rejection
+          const temperature = IS_MINIMAX
+            ? Math.max(0.01, Math.min(1.0, config.llm.temperature))
+            : config.llm.temperature;
           response = await client.chat.completions.create({
             model: usedModel,
             messages,
             tools: getToolsForRole(agentType, goal),
             tool_choice: toolChoice,
-            temperature: config.llm.temperature,
+            temperature,
             max_tokens: maxOutputTokens ?? config.llm.maxTokens,
           });
         } catch (error) {
           if (providerMode === "system" && isSystemRoleError(error)) {
             providerMode = "user_embedded";
-            messages = buildMessages(systemPrompt, sessionHistory, goal, providerMode);
+            // Only rebuild from scratch on the first step (before any tool results accumulated).
+            // On later steps, just strip any leading system message to avoid losing tool history.
+            if (step === 0) {
+              messages = buildMessages(systemPrompt, sessionHistory, goal, providerMode);
+            } else {
+              // Replace the leading system message with an embedded user message
+              if (messages[0]?.role === "system") {
+                const sysContent = messages[0].content;
+                messages = [
+                  { role: "user", content: `[SYSTEM INSTRUCTIONS]\n${sysContent}` },
+                  ...messages.slice(1),
+                ];
+              }
+            }
             log("agent", "Provider rejected system role — retrying with embedded system instructions");
             attempt -= 1;
             continue;
@@ -312,10 +334,8 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
             };
           }
           messages.push({
-            role: providerMode === "system" ? "system" : "user",
-            content: providerMode === "system"
-              ? "You have not used any tool yet. This request requires real tool execution or live tool-backed data. Do not answer from memory or inference. Call the appropriate tool first, then report only the real result."
-              : "[SYSTEM REMINDER]\nYou have not used any tool yet. This request requires real tool execution or live tool-backed data. Do not answer from memory or inference. Call the appropriate tool first, then report only the real result.",
+            role: "user",
+            content: "[SYSTEM REMINDER]\nYou have not used any tool yet. This request requires real tool execution or live tool-backed data. Do not answer from memory or inference. Call the appropriate tool first, then report only the real result.",
           });
           continue;
         }
