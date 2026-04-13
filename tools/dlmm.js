@@ -550,15 +550,16 @@ export async function getMyPositions({ force = false, silent = false } = {}) {
         const ageFromState = tracked?.deployed_at
           ? Math.floor((Date.now() - new Date(tracked.deployed_at).getTime()) / 60000)
           : null;
-        const reportedPnlPct = lpData
-          ? parseFloat(config.management.solMode ? (lpData.pnl?.percentNative || 0) : (lpData.pnl?.percent || 0))
-          : binData
-            ? parseFloat(config.management.solMode ? (binData.pnlSolPctChange || 0) : (binData.pnlPctChange || 0))
+        // Meteora is primary source; LPAgent is fallback.
+        const reportedPnlPct = binData
+          ? parseFloat(config.management.solMode ? (binData.pnlSolPctChange || 0) : (binData.pnlPctChange || 0))
+          : lpData
+            ? parseFloat(config.management.solMode ? (lpData.pnl?.percentNative || 0) : (lpData.pnl?.percent || 0))
             : null;
-        const derivedPnlPct = lpData
-          ? deriveLpAgentPnlPct(lpData, config.management.solMode)
-          : binData
-            ? deriveOpenPnlPct(binData, config.management.solMode)
+        const derivedPnlPct = binData
+          ? deriveOpenPnlPct(binData, config.management.solMode)
+          : lpData
+            ? deriveLpAgentPnlPct(lpData, config.management.solMode)
             : null;
         const pnlPctDiff = reportedPnlPct != null && derivedPnlPct != null
           ? Math.abs(reportedPnlPct - derivedPnlPct)
@@ -577,37 +578,37 @@ export async function getMyPositions({ force = false, silent = false } = {}) {
           upper_bin:          upperBin,
           active_bin:         activeBin,
           in_range:           binData ? !binData.isOutOfRange : !isOOR,
-          unclaimed_fees_usd: lpData
-            ? Math.round((
-                config.management.solMode
-                  ? safeNum(lpData.unCollectedFeeNative)
-                  : safeNum(lpData.unCollectedFee)
-              ) * 10000) / 10000
-            : binData
+          unclaimed_fees_usd: binData
             ? Math.round((
                 config.management.solMode
                   ? parseFloat(binData.unrealizedPnl?.unclaimedFeeTokenX?.amountSol || 0) + parseFloat(binData.unrealizedPnl?.unclaimedFeeTokenY?.amountSol || 0)
                   : parseFloat(binData.unrealizedPnl?.unclaimedFeeTokenX?.usd || 0) + parseFloat(binData.unrealizedPnl?.unclaimedFeeTokenY?.usd || 0)
               ) * 10000) / 10000
-            : null,
-          total_value_usd:    lpData
+            : lpData
             ? Math.round((
                 config.management.solMode
-                  ? safeNum(lpData.valueNative)
-                  : safeNum(lpData.value)
+                  ? safeNum(lpData.unCollectedFeeNative)
+                  : safeNum(lpData.unCollectedFee)
               ) * 10000) / 10000
-            : binData
+            : null,
+          total_value_usd:    binData
             ? Math.round((
                 config.management.solMode
                   ? parseFloat(binData.unrealizedPnl?.balancesSol || 0)
                   : parseFloat(binData.unrealizedPnl?.balances || 0)
               ) * 10000) / 10000
+            : lpData
+            ? Math.round((
+                config.management.solMode
+                  ? safeNum(lpData.valueNative)
+                  : safeNum(lpData.value)
+              ) * 10000) / 10000
             : null,
           // Always-USD fields for internal accounting and lesson recording.
-          total_value_true_usd: lpData
-            ? Math.round(safeNum(lpData.value) * 10000) / 10000
-            : binData
+          total_value_true_usd: binData
             ? Math.round(parseFloat(binData.unrealizedPnl?.balances || 0) * 10000) / 10000
+            : lpData
+            ? Math.round(safeNum(lpData.value) * 10000) / 10000
             : null,
           collected_fees_usd: lpData
             ? Math.round((
@@ -623,30 +624,30 @@ export async function getMyPositions({ force = false, silent = false } = {}) {
             : binData
             ? Math.round(parseFloat(binData.allTimeFees?.total?.usd || 0) * 10000) / 10000
             : null,
-          pnl_usd:            lpData
+          pnl_usd:            binData
+            ? Math.round(parseFloat(config.management.solMode ? (binData.pnlSol || 0) : (binData.pnlUsd || 0)) * 10000) / 10000
+            : lpData
             ? Math.round((
                 config.management.solMode
                   ? safeNum(lpData.pnl?.valueNative)
                   : safeNum(lpData.pnl?.value)
               ) * 10000) / 10000
-            : binData
-            ? Math.round(parseFloat(config.management.solMode ? (binData.pnlSol || 0) : (binData.pnlUsd || 0)) * 10000) / 10000
             : null,
-          pnl_true_usd:       lpData
-            ? Math.round(safeNum(lpData.pnl?.value) * 10000) / 10000
-            : binData
+          pnl_true_usd:       binData
             ? Math.round(parseFloat(binData.pnlUsd || 0) * 10000) / 10000
+            : lpData
+            ? Math.round(safeNum(lpData.pnl?.value) * 10000) / 10000
             : null,
-          pnl_pct:            (lpData || binData)
+          pnl_pct:            (binData || lpData)
             ? Math.round(reportedPnlPct * 100) / 100
             : null,
           pnl_pct_derived:    derivedPnlPct != null ? Math.round(derivedPnlPct * 100) / 100 : null,
           pnl_pct_diff:       pnlPctDiff != null ? Math.round(pnlPctDiff * 100) / 100 : null,
           pnl_pct_suspicious: !!pnlPctSuspicious,
-          unclaimed_fees_true_usd: lpData
-            ? Math.round(safeNum(lpData.unCollectedFee) * 10000) / 10000
-            : binData
+          unclaimed_fees_true_usd: binData
             ? Math.round((parseFloat(binData.unrealizedPnl?.unclaimedFeeTokenX?.usd || 0) + parseFloat(binData.unrealizedPnl?.unclaimedFeeTokenY?.usd || 0)) * 10000) / 10000
+            : lpData
+            ? Math.round(safeNum(lpData.unCollectedFee) * 10000) / 10000
             : null,
           fee_per_tvl_24h:    binData
             ? Math.round(parseFloat(binData.feePerTvl24h || 0) * 100) / 100
