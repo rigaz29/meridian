@@ -96,6 +96,8 @@ pnlVelocitySLPct:      u.pnlVelocitySLPct      ?? 5,   // close if PnL drops X% 
   // ─── Strategy Mapping ───────────────────
   strategy: {
     strategy:         u.strategy         ?? "bid_ask",
+    lpStrategyMode:      u.lpStrategyMode      ?? "auto",  // "bid_ask" | "spot" | "auto" | "fee_tvl"
+    ftvlThreshold:       u.ftvlThreshold       ?? 0.6,    // fee_tvl mode: fee/tvl <= this → spot, > this → bid_ask
     targetDownsidePct: u.targetDownsidePct ?? 0.35,  // cover X% price drop below active bin
     targetUpsidePct:   u.targetUpsidePct   ?? 0.20,  // cover X% price rise above active bin (spot only)
   },

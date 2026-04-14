@@ -202,6 +202,8 @@ pnlVelocitySLPct: ["management", "pnlVelocitySLPct"],
       screeningModel: ["llm", "screeningModel"],
       generalModel: ["llm", "generalModel"],
       // strategy
+      lpStrategyMode:      ["strategy", "lpStrategyMode"],
+      ftvlThreshold:       ["strategy", "ftvlThreshold"],
       targetDownsidePct: ["strategy", "targetDownsidePct"],
       targetUpsidePct:   ["strategy", "targetUpsidePct"],
     };

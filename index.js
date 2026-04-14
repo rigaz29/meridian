@@ -612,9 +612,16 @@ export async function runScreeningCycle({ silent = false } = {}) {
 
     // Load active strategy
     const activeStrategy = getActiveStrategy();
+    const lpStrategyMode = config.strategy.lpStrategyMode ?? "auto"; // "bid_ask" | "spot" | "auto"
     const strategyBlock = activeStrategy
       ? `ACTIVE STRATEGY: ${activeStrategy.name} — LP default: ${activeStrategy.lp_strategy} | deposit: ${activeStrategy.entry?.single_side === "sol" ? "SOL only (amount_y, amount_x=0)" : "dual-sided"} | best for: ${activeStrategy.best_for} | bins auto-calculated from config targets`
-      : `No active strategy — choose bid_ask or spot based on token signals. Bins auto-calculated.`;
+      : lpStrategyMode === "bid_ask"
+        ? `LP STRATEGY MODE: bid_ask ONLY — always use bid_ask regardless of pool signals. Ignore strategy_hint.`
+        : lpStrategyMode === "spot"
+          ? `LP STRATEGY MODE: spot ONLY — always use spot regardless of pool signals. Ignore strategy_hint.`
+          : lpStrategyMode === "fee_tvl"
+            ? `LP STRATEGY MODE: fee_tvl — spot if fee/tvl ≤ ${config.strategy.ftvlThreshold ?? 0.6}, bid_ask if fee/tvl > ${config.strategy.ftvlThreshold ?? 0.6}. Use strategy_hint per pool.`
+            : `LP STRATEGY MODE: auto (signal-based) — use strategy_hint per pool. Bins auto-calculated.`;
 
     // Fetch top candidates, then recon each sequentially with a small delay to avoid 429s
     const topCandidates = await getTopCandidates({ limit: 10 }).catch(() => null);
@@ -716,12 +723,27 @@ export async function runScreeningCycle({ silent = false } = {}) {
         pool.dev_sold_all       ? "dev_sold_all(bullish)" : null,
       ].filter(Boolean).join(", ");
 
-      const strategyHint = computeStrategyRecommendation(pool.pool, {
-        smart_money_buy: !!pool.smart_money_buy,
-        volatility: pool.volatility,
-        fee_tvl_ratio: pool.fee_active_tvl_ratio,
-        price_change_pct: ti?.stats_1h?.price_change ?? null,
-      });
+      let strategyHint;
+      if (lpStrategyMode === "bid_ask") {
+        strategyHint = { strategy: "bid_ask", reason: "forced by lpStrategyMode=bid_ask", confidence: "high" };
+      } else if (lpStrategyMode === "spot") {
+        strategyHint = { strategy: "spot", reason: "forced by lpStrategyMode=spot", confidence: "high" };
+      } else if (lpStrategyMode === "fee_tvl") {
+        const ftvl = pool.fee_active_tvl_ratio ?? 0;
+        const threshold = config.strategy.ftvlThreshold ?? 0.6;
+        if (ftvl <= threshold) {
+          strategyHint = { strategy: "spot",    reason: `fee_tvl mode: fee/tvl ${ftvl.toFixed(3)} ≤ ${threshold} → spot`,    confidence: "high" };
+        } else {
+          strategyHint = { strategy: "bid_ask", reason: `fee_tvl mode: fee/tvl ${ftvl.toFixed(3)} > ${threshold} → bid_ask`, confidence: "high" };
+        }
+      } else {
+        strategyHint = computeStrategyRecommendation(pool.pool, {
+          smart_money_buy: !!pool.smart_money_buy,
+          volatility: pool.volatility,
+          fee_tvl_ratio: pool.fee_active_tvl_ratio,
+          price_change_pct: ti?.stats_1h?.price_change ?? null,
+        });
+      }
 
       const block = [
         `POOL: ${pool.name} (${pool.pool})`,
