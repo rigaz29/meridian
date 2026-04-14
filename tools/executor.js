@@ -138,7 +138,11 @@ const toolMap = {
       return { error: err.message };
     }
   },
-  update_config: ({ changes, reason = "" }) => {
+  update_config: ({ changes, reason = "" } = {}) => {
+    if (!changes || typeof changes !== "object" || Array.isArray(changes)) {
+      log("config", `update_config called with invalid changes: ${JSON.stringify(changes)}`);
+      return { success: false, error: "changes must be a non-null object", reason };
+    }
     // Flat key → config section mapping (covers everything in config.js)
     const CONFIG_MAP = {
       // screening
