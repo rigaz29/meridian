@@ -21,6 +21,7 @@ import {
 import { recordPerformance } from "../lessons.js";
 import { isBaseMintOnCooldown, isPoolOnCooldown, computeStrategyRecommendation } from "../pool-memory.js";
 import { normalizeMint } from "./wallet.js";
+import { getPriceInfo } from "./okx.js";
 
 // ─── Lazy SDK loader ───────────────────────────────────────────
 // @meteora-ag/dlmm → @coral-xyz/anchor uses CJS directory imports
@@ -1007,6 +1008,20 @@ export async function closePosition({ position_address, reason }) {
         }
       }
 
+      // Fetch real-time ATH data for upside OOR closes — used for situational cooldown
+      let priceVsAthPct = null;
+      const closeReasonLower = String(reason || "").toLowerCase();
+      const isUpsideOor = closeReasonLower.includes("pump") || closeReasonLower.includes("upside") || closeReasonLower.includes("above range");
+      if (isUpsideOor && tracked.base_mint) {
+        try {
+          const priceInfo = await getPriceInfo(tracked.base_mint);
+          priceVsAthPct = priceInfo?.price_vs_ath_pct ?? null;
+          log("close", `ATH check on close: price_vs_ath=${priceVsAthPct}% (baseMint=${tracked.base_mint.slice(0, 8)})`);
+        } catch (e) {
+          log("close_warn", `ATH fetch failed on close: ${e.message}`);
+        }
+      }
+
       await recordPerformance({
         position: position_address,
         pool: poolAddress,
@@ -1027,6 +1042,7 @@ export async function closePosition({ position_address, reason }) {
         signal_snapshot: tracked.signal_snapshot || null,
         deployed_at: tracked.deployed_at,
         base_mint: tracked.base_mint || null,
+        price_vs_ath_pct: priceVsAthPct,
       });
 
       return {

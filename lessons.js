@@ -98,6 +98,7 @@ export async function recordPerformance(perf) {
       price_change_pct: entry.price_change_pct,
       pool_tvl_usd: entry.pool_tvl_usd,
       volume_trend: entry.volume_trend,
+      price_vs_ath_pct: perf.price_vs_ath_pct ?? null,
     });
   }
 

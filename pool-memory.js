@@ -171,15 +171,21 @@ export function recordPoolDeploy(poolAddress, deployData) {
   } else if (isLowYieldCloseReason(deploy.close_reason)) {
     const cooldownUntil = setPoolCooldown(entry, 2, "low yield");
     log("pool-memory", `Cooldown 2h set for ${entry.name} until ${cooldownUntil} (low yield close)`);
-  // Rule 3: OOR situasional — upside/pump (ATH) → 6h, downside/regular → 30min
-  } else if (isOorCloseReason(deploy.close_reason)) {
-    if (isUpsideOorCloseReason(deploy.close_reason)) {
-      const cooldownUntil = setPoolCooldown(entry, 6, "upside OOR (pump/ATH)");
-      log("pool-memory", `Cooldown 6h set for ${entry.name} until ${cooldownUntil} (upside OOR pump)`);
+  // Rule 3: OOR situasional (cek upside dulu — "Rule 3: pumped" tidak mengandung kata "oor")
+  //   - upside OOR + harga di ATH (price_vs_ath_pct >= 95) → 6h (kemungkinan koreksi besar)
+  //   - upside OOR + belum ATH                             → 30min
+  //   - downside OOR                                       → tidak ada cooldown
+  } else if (isUpsideOorCloseReason(deploy.close_reason)) {
+    const isAtAth = deploy.price_vs_ath_pct != null && deploy.price_vs_ath_pct >= 95;
+    if (isAtAth) {
+      const cooldownUntil = setPoolCooldown(entry, 6, `upside OOR at ATH (${deploy.price_vs_ath_pct}%)`);
+      log("pool-memory", `Cooldown 6h set for ${entry.name} until ${cooldownUntil} (upside OOR at ATH ${deploy.price_vs_ath_pct}%)`);
     } else {
-      const cooldownUntil = setPoolCooldown(entry, 0.5, "OOR close");
-      log("pool-memory", `Cooldown 30min set for ${entry.name} until ${cooldownUntil} (OOR close)`);
+      const athNote = deploy.price_vs_ath_pct != null ? ` (${deploy.price_vs_ath_pct}% of ATH)` : " (ATH data unavailable)";
+      const cooldownUntil = setPoolCooldown(entry, 0.5, `upside OOR not ATH${athNote}`);
+      log("pool-memory", `Cooldown 30min set for ${entry.name} until ${cooldownUntil} (upside OOR not ATH${athNote})`);
     }
+    // downside OOR (isOorCloseReason tapi bukan upside) → tidak ada cooldown
   }
 
   save(db);
