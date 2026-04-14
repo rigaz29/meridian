@@ -413,7 +413,6 @@ export async function notifyClose({
   ageMinutes, deploySol, depositedUsd, withdrawnUsd, positionAddress,
   strategy, binStep, volatility,
 }) {
-  if (hasActiveLiveMessage()) return;
 
   const pnlNum    = Number(pnlUsd ?? 0);
   const pnlPctNum = Number(pnlPct ?? 0);
