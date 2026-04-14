@@ -1185,8 +1185,23 @@ async function telegramHandler(msg) {
     const isDeployRequest = !hasCloseIntent && /\bdeploy\b|\bopen position\b|\blp into\b|\badd liquidity\b/i.test(text);
     const agentRole = isDeployRequest ? "SCREENER" : "GENERAL";
     const agentModel = agentRole === "SCREENER" ? config.llm.screeningModel : config.llm.generalModel;
+
+    // Inject strategy mode instruction for deploy requests
+    let prompt = text;
+    if (isDeployRequest) {
+      const lpMode = config.strategy.lpStrategyMode ?? "auto";
+      const modeInstruction = lpMode === "bid_ask"
+        ? `[LP STRATEGY MODE: bid_ask ONLY — use bid_ask regardless of pool signals.]`
+        : lpMode === "spot"
+          ? `[LP STRATEGY MODE: spot ONLY — use spot regardless of pool signals.]`
+          : lpMode === "fee_tvl"
+            ? `[LP STRATEGY MODE: fee_tvl — call get_pool_detail or use known fee_active_tvl_ratio: if ≤ ${config.strategy.ftvlThreshold ?? 0.6} use spot, if > ${config.strategy.ftvlThreshold ?? 0.6} use bid_ask.]`
+            : `[LP STRATEGY MODE: auto — choose bid_ask or spot based on pool signals.]`;
+      prompt = `${modeInstruction}\n${text}`;
+    }
+
     liveMessage = await createLiveMessage("🤖 Live Update", `Request: ${text.slice(0, 240)}`);
-    const { content } = await agentLoop(text, config.llm.maxSteps, sessionHistory, agentRole, agentModel, null, {
+    const { content } = await agentLoop(prompt, config.llm.maxSteps, sessionHistory, agentRole, agentModel, null, {
       interactive: true,
       onToolStart: async ({ name }) => { await liveMessage?.toolStart(name); },
       onToolFinish: async ({ name, result, success }) => { await liveMessage?.toolFinish(name, result, success); },
