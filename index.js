@@ -5,7 +5,7 @@ import { agentLoop } from "./agent.js";
 import { log } from "./logger.js";
 import { getMyPositions, closePosition, getActiveBin } from "./tools/dlmm.js";
 import { getWalletBalances, swapToken } from "./tools/wallet.js";
-import { getTopCandidates } from "./tools/screening.js";
+import { getTopCandidates, getPoolDetail } from "./tools/screening.js";
 import { config, reloadScreeningThresholds, computeDeployAmount } from "./config.js";
 import { evolveThresholds, getPerformanceSummary, bootstrapFromHistory } from "./lessons.js";
 import { registerCronRestarter } from "./tools/executor.js";
@@ -689,6 +689,13 @@ export async function runScreeningCycle({ silent = false } = {}) {
       passing.map(({ pool }) => getActiveBin({ pool_address: pool.pool }))
     );
 
+    // Pre-fetch 1h fee_active_tvl_ratio for fee_tvl mode (strategy decision always uses 1h, not screening timeframe)
+    const feetvl1hResults = lpStrategyMode === "fee_tvl" && config.screening.timeframe !== "1h"
+      ? await Promise.allSettled(
+          passing.map(({ pool }) => getPoolDetail({ pool_address: pool.pool, timeframe: "1h" }))
+        )
+      : null;
+
     // Build compact candidate blocks
     const candidateBlocks = passing.map(({ pool, sw, n, ti, mem }, i) => {
       const botPct = ti?.audit?.bot_holders_pct ?? "?";
@@ -729,12 +736,16 @@ export async function runScreeningCycle({ silent = false } = {}) {
       } else if (lpStrategyMode === "spot") {
         strategyHint = { strategy: "spot", reason: "forced by lpStrategyMode=spot", confidence: "high" };
       } else if (lpStrategyMode === "fee_tvl") {
-        const ftvl = pool.fee_active_tvl_ratio ?? 0;
+        const ftvl1h = feetvl1hResults?.[i]?.status === "fulfilled"
+          ? feetvl1hResults[i].value?.fee_active_tvl_ratio
+          : null;
+        const ftvl = ftvl1h ?? pool.fee_active_tvl_ratio ?? 0;
+        const ftvlSrc = ftvl1h != null ? "1h-fetched" : "1h-screening";
         const threshold = config.strategy.ftvlThreshold ?? 0.6;
         if (ftvl <= threshold) {
-          strategyHint = { strategy: "spot",    reason: `fee_tvl mode: fee/tvl ${ftvl.toFixed(3)} ≤ ${threshold} → spot`,    confidence: "high" };
+          strategyHint = { strategy: "spot",    reason: `fee_tvl mode (${ftvlSrc}): fee/tvl ${ftvl.toFixed(3)} ≤ ${threshold} → spot`,    confidence: "high" };
         } else {
-          strategyHint = { strategy: "bid_ask", reason: `fee_tvl mode: fee/tvl ${ftvl.toFixed(3)} > ${threshold} → bid_ask`, confidence: "high" };
+          strategyHint = { strategy: "bid_ask", reason: `fee_tvl mode (${ftvlSrc}): fee/tvl ${ftvl.toFixed(3)} > ${threshold} → bid_ask`, confidence: "high" };
         }
       } else {
         strategyHint = computeStrategyRecommendation(pool.pool, {
