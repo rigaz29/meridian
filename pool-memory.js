@@ -177,9 +177,9 @@ export function recordPoolDeploy(poolAddress, deployData) {
 
   if (repeatedOorCloses) {
     const reason = `repeated OOR closes (${oorTriggerCount}x)`;
-    const poolCooldownUntil = setPoolCooldown(entry, 6, reason);
-    const mintCooldownUntil = setBaseMintCooldown(db, entry.base_mint, 6, reason);
-    log("pool-memory", `Cooldown 6h set for ${entry.name} until ${poolCooldownUntil} (${reason})`);
+    const poolCooldownUntil = setPoolCooldown(entry, 3, reason);
+    const mintCooldownUntil = setBaseMintCooldown(db, entry.base_mint, 3, reason);
+    log("pool-memory", `Cooldown 3h set for ${entry.name} until ${poolCooldownUntil} (${reason})`);
     if (entry.base_mint && mintCooldownUntil) {
       log("pool-memory", `Base mint cooldown set for ${entry.base_mint.slice(0, 8)} until ${mintCooldownUntil} (${reason})`);
     }
