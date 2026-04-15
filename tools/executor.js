@@ -208,7 +208,7 @@ const toolMap = {
       ftvlThreshold:       ["strategy", "ftvlThreshold"],
       targetDownsidePct: ["strategy", "targetDownsidePct"],
       targetUpsidePct:   ["strategy", "targetUpsidePct"],
-      binsAboveBuffer:   ["strategy", "binsAboveBuffer"],
+      dynamicBinsAbove:  ["strategy", "dynamicBinsAbove"],
     };
 
     const applied = {};

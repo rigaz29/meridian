@@ -152,7 +152,11 @@ export async function deployPosition({
     ? Math.min(bins_below, estMaxBinsBelow)
     : Math.min(estMaxBinsBelow, calcBinsFromTarget(estBinStep, targetDownside));
   const isSolOnly = !amount_x || amount_x <= 0;
-  const binsAboveBuffer = config.strategy.binsAboveBuffer ?? 0;
+  // dynamic buffer: targetUpside = 0.04 + (vol/5)*0.06 → vol=0→4%, vol=2.5→7%, vol=5→10%
+  // at vol=5, bs=80: calcBinsFromTarget(80, 0.10) = 12 (natural max, no cap needed)
+  const binsAboveBuffer = config.strategy.dynamicBinsAbove
+    ? calcBinsFromTarget(estBinStep, 0.04 + (vol / 5) * 0.06, true)
+    : 0;
   const activeBinsAbove = (activeStrategy === "bid_ask" || isSolOnly)
     ? binsAboveBuffer  // empty buffer bins — no liquidity, but extends upper bound to delay OOR above trigger
     : (bins_above != null ? bins_above : calcBinsFromTarget(estBinStep, targetUpside, true));
@@ -196,8 +200,12 @@ export async function deployPosition({
   const finalBinsBelow = bins_below != null
     ? Math.min(bins_below, maxBinsBelow)
     : Math.min(maxBinsBelow, calcBinsFromTarget(actualBinStep, targetDownside));
+  // recalculate with actual bin_step from pool (more accurate than estimate)
+  const finalBinsAboveBuffer = config.strategy.dynamicBinsAbove
+    ? calcBinsFromTarget(actualBinStep, 0.04 + (vol / 5) * 0.06, true)
+    : 0;
   const finalBinsAbove = (activeStrategy === "bid_ask" || (amount_x ?? 0) <= 0)
-    ? binsAboveBuffer  // empty buffer bins — extends upper bound without requiring token X
+    ? finalBinsAboveBuffer  // empty buffer bins — extends upper bound without requiring token X
     : (bins_above != null ? bins_above : calcBinsFromTarget(actualBinStep, targetUpside, true));
 
   // Range calculation

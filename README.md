@@ -466,7 +466,7 @@ All fields are optional — defaults shown. Edit `user-config.json`.
 | `binsBelow` | `69` | Bins below active bin (overrides volatility formula when set) |
 | `targetDownsidePct` | `0.35` | Cover X% price drop below active bin |
 | `targetUpsidePct` | `0.20` | Cover X% price rise above active bin (spot/curve only) |
-| `binsAboveBuffer` | `12` | Empty buffer bins above active bin for SOL-only / bid_ask deploys — no liquidity is placed there, but `maxBinId` is extended upward so the OOR-above clock doesn't start until price pumps past the buffer. Backtest avg pump causing OOR-above is 14.1%, so 10–12 bins at bs=100 covers most cases. |
+| `dynamicBinsAbove` | `true` | When `true`, empty buffer bins above active bin are calculated dynamically from volatility + bin_step: `targetUpside = 0.04 + (vol/5) * 0.06`, natural max = 12 at vol=5/bs=80. No liquidity placed there, but `maxBinId` is extended upward so the OOR-above clock doesn't start until price pumps past the buffer. When `false`, no buffer (0 bins). |
 
 #### lpStrategyMode
 
@@ -595,7 +595,7 @@ All stop losses respect `minAgeBeforeSL` (7 min) to avoid false triggers on fres
 | Downside OOR | Active bin < lower bin for `downsideOorWaitMinutes` (5m) — faster because recovery from below range is rare |
 | Far above range | Active bin > upper bin + `outOfRangeBinsToClose` — closes immediately, no wait |
 
-`binsAboveBuffer` (default 12) extends the upper bin boundary by N empty bins — so the 30-min OOR-above clock only starts once price pumps past the buffer, giving extra time without placing any liquidity above.
+`dynamicBinsAbove` (default `true`) extends the upper bin boundary by N empty buffer bins calculated from volatility + bin_step — so the 30-min OOR-above clock only starts once price pumps past the buffer, giving extra time without placing any liquidity above. Max 12 bins at vol=5/bs=80; scales down for lower volatility or larger bin steps. Set to `false` to disable the buffer entirely.
 
 ---
 
