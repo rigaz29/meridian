@@ -153,8 +153,9 @@ export async function deployPosition({
     ? Math.min(bins_below, estMaxBinsBelow)
     : Math.min(estMaxBinsBelow, calcBinsFromTarget(estBinStep, targetDownside));
   const isSolOnly = !amount_x || amount_x <= 0;
+  const binsAboveBuffer = config.strategy.binsAboveBuffer ?? 0;
   const activeBinsAbove = (activeStrategy === "bid_ask" || isSolOnly)
-    ? 0
+    ? binsAboveBuffer  // empty buffer bins — no liquidity, but extends upper bound to delay OOR above trigger
     : (bins_above != null ? bins_above : calcBinsFromTarget(estBinStep, targetUpside, true));
 
   if (isPoolOnCooldown(pool_address)) {
@@ -197,7 +198,7 @@ export async function deployPosition({
     ? Math.min(bins_below, maxBinsBelow)
     : Math.min(maxBinsBelow, calcBinsFromTarget(actualBinStep, targetDownside));
   const finalBinsAbove = (activeStrategy === "bid_ask" || (amount_x ?? 0) <= 0)
-    ? 0
+    ? binsAboveBuffer  // empty buffer bins — extends upper bound without requiring token X
     : (bins_above != null ? bins_above : calcBinsFromTarget(actualBinStep, targetUpside, true));
 
   // Range calculation

@@ -200,9 +200,9 @@ Result by bin_step:
 - bs=100: 42 bins at vol=1 → 50 bins at vol=4+ (~34–39% downside)
 - bs=125: 34 bins at vol=1 → 35 bins at vol=2+ (~31–35% downside)
 
-`bins_above`: only non-zero if `amount_x > 0` (token X deployed), otherwise always 0.
+`bins_above`: only non-zero if `amount_x > 0` (token X deployed), otherwise uses `binsAboveBuffer`.
 - With token X: `spot`/`curve` → `targetUpside = min(0.35, 0.15 + (vol/5) * 0.15)`
-- SOL-only deploy or `bid_ask` → always 0
+- SOL-only deploy or `bid_ask` → `binsAboveBuffer` (default 0). These are **empty buffer bins** — no liquidity placed there (no token X), but they extend `maxBinId` upward so OOR above trigger is delayed. Based on 211-position backtest: avg price pump causing OOR above is 14.1%, so setting `binsAboveBuffer=10–15` covers most cases for bs=100.
 
 ---
 

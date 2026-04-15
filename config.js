@@ -101,6 +101,7 @@ export const config = {
     ftvlThreshold:       u.ftvlThreshold       ?? 0.6,    // fee_tvl mode: fee/tvl <= this → spot, > this → bid_ask
     targetDownsidePct: u.targetDownsidePct ?? 0.35,  // cover X% price drop below active bin
     targetUpsidePct:   u.targetUpsidePct   ?? 0.20,  // cover X% price rise above active bin (spot only)
+    binsAboveBuffer:   u.binsAboveBuffer   ?? 0,     // extra empty bins above active bin for SOL-only deploys — extends range upward to delay OOR above trigger (no fees earned there, but OOR clock doesn't start)
   },
 
   // ─── Scheduling ─────────────────────────
