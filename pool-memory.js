@@ -135,6 +135,7 @@ export function recordPoolDeploy(poolAddress, deployData) {
     close_reason: deployData.close_reason || null,
     strategy: deployData.strategy || null,
     volatility_at_deploy: deployData.volatility ?? null,
+    price_vs_ath_pct: deployData.price_vs_ath_pct ?? null,
   };
 
   entry.deploys.push(deploy);
@@ -168,25 +169,37 @@ export function recordPoolDeploy(poolAddress, deployData) {
     const slHours = config.management.oorCooldownHours ?? 6;
     const cooldownUntil = setPoolCooldown(entry, slHours, "velocity/price-drop SL");
     log("pool-memory", `Cooldown ${slHours}h set for ${entry.name} until ${cooldownUntil} (SL close)`);
+
+    // Base mint cooldown: if this token SL'd >= oorCooldownTriggerCount times in last 48h
+    // across all pools → token is consistently problematic, block it everywhere
+    const baseMint = deployData.base_mint || entry.base_mint;
+    if (baseMint) {
+      const triggerCount = config.management.oorCooldownTriggerCount ?? 3;
+      const windowMs = 48 * 60 * 60 * 1000;
+      const recentSlCount = Object.values(db).reduce((sum, e) => {
+        if (e?.base_mint !== baseMint) return sum;
+        return sum + (e.deploys || []).filter(d =>
+          isSlCloseReason(d.close_reason) &&
+          d.closed_at &&
+          (Date.now() - new Date(d.closed_at).getTime()) < windowMs
+        ).length;
+      }, 0);
+      if (recentSlCount >= triggerCount) {
+        setBaseMintCooldown(db, baseMint, slHours, `${recentSlCount} SL closes in 48h`);
+        log("pool-memory", `Token cooldown ${slHours}h set for mint ${baseMint.slice(0, 8)} (${recentSlCount} SL closes in 48h)`);
+      }
+    }
+
   // Rule 2: Low yield → 2h (pool dry, wait for volume to rebuild)
   } else if (isLowYieldCloseReason(deploy.close_reason)) {
     const cooldownUntil = setPoolCooldown(entry, 2, "low yield");
     log("pool-memory", `Cooldown 2h set for ${entry.name} until ${cooldownUntil} (low yield close)`);
-  // Rule 3: Situational OOR (check upside first — "Rule 3: pumped" does not contain "oor")
-  //   - upside OOR + price at ATH (price_vs_ath_pct >= 95) → 6h (likely large correction ahead)
-  //   - upside OOR + not at ATH                            → 30min
-  //   - downside OOR                                       → no cooldown
+
+  // Rule 3: Upside OOR → 30min flat (price pumped past range, wait for price to settle)
+  //         Downside OOR → no cooldown (normal retracement, often recovers)
   } else if (isUpsideOorCloseReason(deploy.close_reason)) {
-    const isAtAth = deploy.price_vs_ath_pct != null && deploy.price_vs_ath_pct >= 95;
-    if (isAtAth) {
-      const cooldownUntil = setPoolCooldown(entry, 6, `upside OOR at ATH (${deploy.price_vs_ath_pct}%)`);
-      log("pool-memory", `Cooldown 6h set for ${entry.name} until ${cooldownUntil} (upside OOR at ATH ${deploy.price_vs_ath_pct}%)`);
-    } else {
-      const athNote = deploy.price_vs_ath_pct != null ? ` (${deploy.price_vs_ath_pct}% of ATH)` : " (ATH data unavailable)";
-      const cooldownUntil = setPoolCooldown(entry, 0.5, `upside OOR not ATH${athNote}`);
-      log("pool-memory", `Cooldown 30min set for ${entry.name} until ${cooldownUntil} (upside OOR not ATH${athNote})`);
-    }
-    // downside OOR (isOorCloseReason but not upside) → no cooldown
+    const cooldownUntil = setPoolCooldown(entry, 0.5, "upside OOR");
+    log("pool-memory", `Cooldown 30min set for ${entry.name} until ${cooldownUntil} (upside OOR)`);
   }
 
   save(db);
