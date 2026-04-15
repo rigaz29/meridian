@@ -379,6 +379,9 @@ Meridian sends notifications automatically for:
 - OOR alerts when a position leaves range past `outOfRangeWaitMinutes`
 - Deploy: pair, amount, position address, tx hash
 - Close: pair and PnL
+- **Filtered pools** — any pool dropped during screening (launchpad rules, bot-holder limit, indicator filter) is notified with the reason:
+  - Screening filters (launchpad / bots): one batched message per cycle listing all filtered names + reasons
+  - Indicator hard filter (ATR/VWAP): immediate per-pool message when a deploy is blocked at execution time
 
 ### Telegram commands
 
@@ -469,6 +472,23 @@ All fields are optional — defaults shown. Edit `user-config.json`.
 | `targetDownsidePct` | `0.35` | Cover X% price drop below active bin |
 | `targetUpsidePct` | `0.20` | Cover X% price rise above active bin (spot/curve only) |
 | `dynamicBinsAbove` | `true` | When `true`, empty buffer bins above active bin are calculated dynamically from volatility + bin_step: `targetUpside = 0.04 + (vol/5) * 0.06`, natural max = 12 at vol=5/bs=80. No liquidity placed there, but `maxBinId` is extended upward so the OOR-above clock doesn't start until price pumps past the buffer. When `false`, no buffer (0 bins). |
+
+#### Bins below — dynamic formula
+
+When `binsBelow` is not set, the number of bins below the active bin is auto-calculated from pool volatility:
+
+```
+targetDownside = min(0.50, 0.35 + (vol / 5) × 0.09)
+bins_below     = min(cap, calcBinsFromTarget(binStep, targetDownside))
+```
+
+| Volatility | Target downside | bs=80 bins | bs=100 bins | bs=125 bins |
+|---|---|---|---|---|
+| 0 | 35% | 50 (cap) | 44 | 31 |
+| 2.5 | 39.5% | 50 (cap) | 48 | 34 |
+| 5 | 44% | 50 (cap) | 50 (cap) | 35 (cap) |
+
+Caps: `bin_step ≥ 125` → 35 bins, `bin_step ≥ 100` → 50 bins, `bin_step < 100` → 50 bins. The base of 0.35 (up from 0.32 in earlier versions) adds ~3% extra downside coverage at all volatility levels to reduce downside OOR events.
 
 #### lpStrategyMode
 
@@ -737,6 +757,54 @@ The SCREENER also injects per-candidate `relevant_lessons` directly into each ca
 relevant_lessons: AVOID: TOKEN/SOL-type pools (volatility=4, bid_ask) — OOR 70% of the time | PATTERN: Quick win (<2h hold, PnL +6.1%). Short-hold works for high-volume pools.
 ```
 
+### Technical indicators at entry (SCREENER)
+
+Every screening candidate now includes a live `indicators` line computed from the last 31 × 1h candles fetched in parallel during pool recon:
+
+```
+indicators: ema=uptrend, rsi=62.1, bb=near_upper, atr=12.3%, vwap_delta=+4.5%, consec_red=0, vol_spike=no
+```
+
+Indicators are also stored in `lessons.json` as `indicators_at_entry` when a position closes, building a historical dataset for pattern analysis.
+
+**Signal interpretation (derived from 85-position backtest):**
+
+| Indicator | Best zone | Worst zone |
+|---|---|---|
+| `ema_trend` | `uptrend` — WR 82%, avg +0.68% | `downtrend` — WR 64%, avg -0.76% |
+| `rsi_14` | 55–80 — WR 81–83% | 45–55 neutral — WR 60% |
+| `bb_position` | `near_upper` / `outside_upper` — 77–80% | `near_lower` / `outside_lower` — 50–75% |
+| `atr_14_pct` | 5–15% — WR 81% | >30% — WR 57%, avg -3.06% |
+| `vwap_delta` | near/above VWAP (≥−5%) — WR 79–90% | <−20% — WR 69%, avg -0.69% |
+| `vol_spike` | YES — avg PnL 3× higher | — |
+
+**Best entry combo:** `ema=uptrend` + `rsi>55` + `atr<30%` → WR 81%, avg PnL +0.71%
+
+#### Indicator-based deploy filter
+
+Before any `deploy_position` executes, the executor fetches fresh 1h indicators and blocks two extreme combinations that historically produce losses:
+
+| Condition | Threshold | Historical outcome |
+|---|---|---|
+| EMA downtrend + ATR | > 40% | WR 50%, avg PnL −2.93% |
+| EMA downtrend + VWAP delta | < −30% | WR 58%, avg PnL −1.21% |
+
+Thresholds are deliberately conservative — both conditions must be met simultaneously. If the OHLCV fetch fails, deploy proceeds normally (non-fatal).
+
+When a deploy is blocked, a Telegram notification is sent with the indicator values and historical context.
+
+#### Backfill script
+
+To enrich existing `lessons.json` performance records with indicators:
+
+```bash
+node scripts/backfill-indicators.js           # backfill all missing
+node scripts/backfill-indicators.js --dry-run  # preview only
+node scripts/backfill-indicators.js --force    # overwrite existing
+```
+
+Fetches 30 pre-entry 1h candles per record from the Meteora OHLCV API using `deployed_at` timestamps. Rate limited to ~2.5 RPS.
+
 ### LLM exit confirmation (opt-in)
 
 By default, Rules 2–5 (take profit, far above range, OOR timeout, low yield) are hardcoded JS decisions — fast and deterministic. Enable `llmConfirmExit` to add an LLM gate before each close fires:
@@ -812,12 +880,16 @@ cli.js                Direct CLI — every tool as a subcommand with JSON output
 
 tools/
   definitions.js      Tool schemas (OpenAI format)
-  executor.js         Tool dispatch + safety checks
+  executor.js         Tool dispatch + safety checks + indicator hard filter
   dlmm.js             Meteora DLMM SDK wrapper
   screening.js        Pool discovery + scoring
   wallet.js           SOL/token balances + Jupiter swap
   token.js            Token info, holders, bundler detection
   study.js            Top LPer study via LPAgent API
+  indicators.js       Pure technical indicator calculations (RSI, BB, VWAP, ATR, EMA, volume spike)
+
+scripts/
+  backfill-indicators.js  Backfill indicators_at_entry for existing lessons.json records
 
 discord-listener/
   index.js            Selfbot Discord listener
