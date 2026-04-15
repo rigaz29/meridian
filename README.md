@@ -437,8 +437,10 @@ All fields are optional — defaults shown. Edit `user-config.json`.
 | `bearMode` | `false` | Swap excess SOL → USDC after close/claim; auto-swap back before deploy. Protects against SOL depreciation. |
 | `outOfRangeWaitMinutes` | `30` | Minutes OOR (upside) before closing |
 | `downsideOorWaitMinutes` | `5` | Minutes OOR (downside) before closing — fast exit, recovery from below range is rare |
+| `oorCooldownTriggerCount` | `3` | SL closes within 48h before token-level cooldown triggers |
+| `oorCooldownHours` | `4` | Pool cooldown duration (hours) after a stop-loss close — prevents immediate re-entry into a crashing pool |
+| `mintCooldownHours` | `24` | Token cooldown duration (hours) when the same token hits SL ≥ `oorCooldownTriggerCount` times within 48h — blocks all pools for that token |
 | `stopLossPct` | `-20` | Close if PnL drops below this % (with 15s confirmation to filter data glitches) |
-| `priceDropSLPct` | `-15` | Close immediately if token price drops X% from entry bin — fee-independent, bypasses LLM |
 | `velocitySLEnabled` | `true` | Enable or disable velocity stop-loss entirely |
 | `pnlVelocitySLPct` | `5` | Close if PnL drops X% within the velocity window — catches freefalls before hitting `stopLossPct` |
 | `pnlVelocityWindowSec` | `90` | Rolling window in seconds for velocity SL measurement |
@@ -463,7 +465,8 @@ All fields are optional — defaults shown. Edit `user-config.json`.
 | `ftvlThreshold` | `1.2` | Fee/TVL threshold for `fee_tvl` mode: ≤ threshold → spot, > threshold → bid_ask. Always measured at 1h timeframe regardless of screening timeframe. |
 | `binsBelow` | `69` | Bins below active bin (overrides volatility formula when set) |
 | `targetDownsidePct` | `0.35` | Cover X% price drop below active bin |
-| `targetUpsidePct` | `0.20` | Cover X% price rise above active bin |
+| `targetUpsidePct` | `0.20` | Cover X% price rise above active bin (spot/curve only) |
+| `binsAboveBuffer` | `12` | Empty buffer bins above active bin for SOL-only / bid_ask deploys — no liquidity is placed there, but `maxBinId` is extended upward so the OOR-above clock doesn't start until price pumps past the buffer. Backtest avg pump causing OOR-above is 14.1%, so 10–12 bins at bs=100 covers most cases. |
 
 #### lpStrategyMode
 
@@ -572,11 +575,8 @@ Meridian uses multiple layers of protection running in parallel. A lightweight P
 
 | Layer | Trigger | Confirmation | Mechanism |
 |---|---|---|---|
-| **Price-drop SL** | Token price drops ≥ `priceDropSLPct` (15%) from entry bin | None — direct close | Computed from active bin delta, independent of fees earned |
-| **Velocity SL** | PnL drops ≥ `pnlVelocitySLPct` (5%) within `pnlVelocityWindowSec` (90s) | None — direct close | In-memory history in 30s poller; catches freefalls before hitting absolute SL |
-| **PnL SL** | `pnl_pct ≤ stopLossPct` (-20%) | 15s recheck — cancels if PnL recovers | Catches slow bleed that price-drop SL misses |
-
-**Why price-drop SL fires first:** PnL includes earned fees, so a token that crashed 20% but earned 8% in fees shows only -12% PnL. Price-drop SL detects the crash regardless.
+| **Velocity SL** | PnL drops ≥ `pnlVelocitySLPct` (5%) within `pnlVelocityWindowSec` (90s) | None — direct close | In-memory history in 10–12s poller; catches freefalls before hitting absolute SL |
+| **PnL SL** | `pnl_pct ≤ stopLossPct` (-20%) | 15s recheck — cancels if PnL recovers | Catches slow bleed that velocity SL misses |
 
 All stop losses respect `minAgeBeforeSL` (7 min) to avoid false triggers on fresh positions where PnL data may be unstable.
 
@@ -591,12 +591,46 @@ All stop losses respect `minAgeBeforeSL` (7 min) to avoid false triggers on fres
 
 | Rule | Trigger |
 |---|---|
-| Upside OOR (near ATH) | Active bin > upper bin while price is within 10% of ATH → 6h cooldown before close (pump may continue) |
-| Upside OOR (regular) | Active bin > upper bin, price not near ATH → `outOfRangeWaitMinutes` (30m default) before close |
-| Downside OOR | Active bin < lower bin for `downsideOorWaitMinutes` (5m) — faster because recovery is rare |
+| Upside OOR | Active bin > upper bin for `outOfRangeWaitMinutes` (30m) before close |
+| Downside OOR | Active bin < lower bin for `downsideOorWaitMinutes` (5m) — faster because recovery from below range is rare |
 | Far above range | Active bin > upper bin + `outOfRangeBinsToClose` — closes immediately, no wait |
 
-ATH-aware cooldown prevents premature exits during strong pumps. If price is within 10% of ATH, the upside OOR wait is extended to 6 hours automatically.
+`binsAboveBuffer` (default 12) extends the upper bin boundary by N empty bins — so the 30-min OOR-above clock only starts once price pumps past the buffer, giving extra time without placing any liquidity above.
+
+---
+
+## Deploy cooldown (re-entry protection)
+
+After a position closes, Meridian applies cooldowns to prevent immediately re-entering the same pool or token while conditions are still bad.
+
+### Pool-level cooldown
+
+Applies to the specific pool address:
+
+| Close reason | Cooldown |
+|---|---|
+| Velocity SL or PnL SL | `oorCooldownHours` (default **4h**) — pool was crashing, needs time to stabilise |
+| Low yield (dead volume) | **2h** — wait for volume to rebuild |
+| Upside OOR | **30 min** — price pumped past range; may pull back shortly |
+| Downside OOR / take profit / manual | **None** — normal exits, re-entry allowed immediately |
+
+### Token-level cooldown
+
+Applies to the token mint across **all** pools — if the same token repeatedly SL-closes it's a chronic problem, not a pool-specific one.
+
+| Condition | Cooldown |
+|---|---|
+| Token hits SL ≥ `oorCooldownTriggerCount` (3) times within 48h | `mintCooldownHours` (default **24h**) — block all pools for this token |
+
+When a token is on cooldown, it is skipped during screening even if a different pool for that token looks attractive.
+
+### Config keys
+
+| Key | Default | Effect |
+|---|---|---|
+| `oorCooldownHours` | `4` | Pool cooldown after SL close |
+| `mintCooldownHours` | `24` | Token cooldown after repeated SL closes |
+| `oorCooldownTriggerCount` | `3` | SL count threshold within 48h before token cooldown fires |
 
 ---
 
