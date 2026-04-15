@@ -136,6 +136,7 @@ async function enrichFromMeteora(entry) {
     "avg_volume_per_candle", "total_volume_during", "volume_trend",
     "event_count_deposits", "event_count_withdraws", "event_count_claims",
     "total_events", "minutes_to_first_withdraw",
+    "indicators_at_entry",
     "_candle_count", "_candle_timeframe", "_pool_snapshot", "_enriched_at",
   ];
   for (const f of fields) { if (enriched[f] != null && entry[f] == null) entry[f] = enriched[f]; }

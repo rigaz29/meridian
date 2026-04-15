@@ -12,6 +12,7 @@
  */
 
 import { log } from "./logger.js";
+import { computeIndicators } from "./tools/indicators.js";
 
 const BASE_URL = "https://dlmm.datapi.meteora.ag";
 const MAX_RETRIES = 3;
@@ -262,6 +263,36 @@ export async function enrichPosition(position) {
       }
     } catch (err) {
       log("meteora_api_error", `OHLCV fetch failed for ${poolAddr}: ${err.message}`);
+    }
+  }
+
+  await sleep(100);
+
+  // ── 2b. Technical indicators at entry ─────────────────────
+  // Fetch 30 pre-entry candles (1h) for RSI/BB lookback, then compute
+  // indicators at the moment of entry. Stored separately from position OHLCV.
+  if (entryTime) {
+    try {
+      const LOOKBACK = 30;        // candles before entry (covers RSI-14 + BB-20 warmup)
+      const CANDLE_SEC = 3600;    // 1h candles for consistency across positions
+      const preStart = entryTime - LOOKBACK * CANDLE_SEC;
+      const preEnd = entryTime + CANDLE_SEC; // +1 candle to include entry candle itself
+
+      const preCandles = await fetchOHLCV(poolAddr, {
+        startTime: preStart,
+        endTime: preEnd,
+        timeframe: "1h",
+      });
+
+      if (Array.isArray(preCandles) && preCandles.length >= 5) {
+        const indicators = computeIndicators(preCandles);
+        if (indicators) {
+          enriched.indicators_at_entry = indicators;
+          log("meteora_api", `Indicators computed for ${poolAddr.slice(0, 8)}: RSI=${indicators.rsi_14 ?? "?"} BB=${indicators.bb_position ?? "?"}`);
+        }
+      }
+    } catch (err) {
+      log("meteora_api_error", `Indicator fetch failed for ${poolAddr}: ${err.message}`);
     }
   }
 
