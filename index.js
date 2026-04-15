@@ -1,19 +1,19 @@
 import "dotenv/config";
 import cron from "node-cron";
 import readline from "readline";
-import { agentLoop } from "./agent.js";
+import { agentLoop, quickLLMCall } from "./agent.js";
 import { log } from "./logger.js";
 import { getMyPositions, closePosition, getActiveBin } from "./tools/dlmm.js";
 import { getWalletBalances, swapToken } from "./tools/wallet.js";
 import { getTopCandidates, getPoolDetail } from "./tools/screening.js";
 import { config, reloadScreeningThresholds, computeDeployAmount } from "./config.js";
-import { evolveThresholds, getPerformanceSummary, bootstrapFromHistory } from "./lessons.js";
+import { evolveThresholds, getPerformanceSummary, bootstrapFromHistory, getRelevantLessons } from "./lessons.js";
 import { registerCronRestarter } from "./tools/executor.js";
 import { startPolling, stopPolling, sendMessage, sendHTML, notifyOutOfRange, notifyClose, isEnabled as telegramEnabled, createLiveMessage, formatPositionsList } from "./telegram.js";
 import { generateBriefing } from "./briefing.js";
 import { getLastBriefingDate, setLastBriefingDate, getTrackedPosition, setPositionInstruction, updatePnlAndCheckExits, queuePeakConfirmation, resolvePendingPeak, queueTrailingDropConfirmation, resolvePendingTrailingDrop, queueStopLossConfirmation, resolvePendingStopLoss } from "./state.js";
 import { getActiveStrategy } from "./strategy-library.js";
-import { recordPositionSnapshot, recallForPool, addPoolNote, computeStrategyRecommendation } from "./pool-memory.js";
+import { recordPositionSnapshot, recallForPool, addPoolNote, computeStrategyRecommendation, getFeeVelocity, getPoolMemoryStats } from "./pool-memory.js";
 import { checkSmartWalletsOnPool } from "./smart-wallets.js";
 import { getTokenNarrative, getTokenInfo } from "./tools/token.js";
 
@@ -463,6 +463,47 @@ export async function runManagementCycle({ silent = false } = {}) {
     mgmtReport = reportLines.join("\n\n") +
       `\n\nSummary: 💼 ${positions.length} positions | ${cur}${totalValue.toFixed(4)} | fees: ${cur}${totalUnclaimed.toFixed(4)} | ${actionSummary}`;
 
+    // ── LLM Exit Confirmation Gate (opt-in: llmConfirmExit=true) ────────
+    // For Rules 2-5: ask LLM to confirm or veto before executing.
+    // Default off — adds ~1-3s per position. On error: defaults to CONFIRM (safe).
+    if (config.management.llmConfirmExit) {
+      const confirmRules = new Set(config.management.llmConfirmRules ?? [2, 3, 4, "4b", 5]);
+      await Promise.allSettled(
+        [...actionMap.entries()]
+          .filter(([, act]) => act.action === "CLOSE" && confirmRules.has(act.rule))
+          .map(async ([posAddr, act]) => {
+            const p = positionData.find(x => x.position === posAddr);
+            if (!p) return;
+            const feeVel = getFeeVelocity(p.pool);
+            const tracked = getTrackedPosition(p.position);
+            const context = [
+              `Position: ${p.pair} | Age: ${p.age_minutes ?? "?"}m | PnL: ${p.pnl_pct ?? "?"}%`,
+              `In range: ${p.in_range} | OOR: ${p.minutes_out_of_range ?? 0}m`,
+              `Unclaimed fees: ${cur}${p.unclaimed_fees_usd} | Value: ${cur}${p.total_value_usd} | Yield/24h: ${p.fee_per_tvl_24h ?? "?"}%`,
+              feeVel ? `Fee velocity: ${cur}${feeVel.usd_per_hour}/hr (${feeVel.trend})` : null,
+              tracked?.volatility ? `Volatility at deploy: ${tracked.volatility}` : null,
+              p.recall ? `Pool memory: ${p.recall.split("\n")[0]}` : null,
+              `Proposed close reason: Rule ${act.rule} — ${act.reason}`,
+            ].filter(Boolean).join("\n");
+            const reply = await quickLLMCall(
+              `${context}\n\nShould this LP position be closed now?\nRespond with exactly CONFIRM or VETO, followed by one short reason.`,
+              {
+                model: config.llm.managementModel,
+                maxTokens: 64,
+                systemPrompt: "You are an LP manager. Respond only with CONFIRM or VETO and a brief reason. No other text.",
+              }
+            );
+            const text = (reply || "").trim();
+            if (/^VETO/i.test(text)) {
+              log("cron", `LLM vetoed Rule ${act.rule} exit for ${p.pair} — ${text.slice(0, 80)}`);
+              actionMap.set(posAddr, { action: "STAY", rule: null, reason: `LLM vetoed: ${text.slice(5, 60)}` });
+            } else {
+              log("cron", `LLM confirmed Rule ${act.rule} exit for ${p.pair}`);
+            }
+          })
+      );
+    }
+
     // ── Call LLM only if action needed ──────────────────────────────
     const actionPositions = positionData.filter(p => {
       const a = actionMap.get(p.position);
@@ -474,15 +515,28 @@ export async function runManagementCycle({ silent = false } = {}) {
 
       const actionBlocks = actionPositions.map((p) => {
         const act = actionMap.get(p.position);
+        const feeVel = getFeeVelocity(p.pool);
         return [
           `POSITION: ${p.pair} (${p.position})`,
           `  pool: ${p.pool}`,
           `  action: ${act.action}${act.rule && act.rule !== "exit" ? ` — Rule ${act.rule}: ${act.reason}` : ""}${act.rule === "exit" ? ` — ⚡ Trailing TP: ${act.reason}` : ""}`,
           `  pnl_pct: ${p.pnl_pct}% | unclaimed_fees: ${cur}${p.unclaimed_fees_usd} | value: ${cur}${p.total_value_usd} | fee_per_tvl_24h: ${p.fee_per_tvl_24h ?? "?"}%`,
           `  bins: lower=${p.lower_bin} upper=${p.upper_bin} active=${p.active_bin} | oor_minutes: ${p.minutes_out_of_range ?? 0}`,
+          feeVel ? `  fee_velocity: $${feeVel.usd_per_hour}/hr (${feeVel.trend}, n=${feeVel.sample_count})` : null,
+          p.recall ? `  pool_memory: ${p.recall.split("\n")[0]}` : null,
           p.instruction ? `  instruction: "${p.instruction}"` : null,
         ].filter(Boolean).join("\n");
       }).join("\n\n");
+
+      // Compute signals from action positions for lesson relevance scoring
+      const firstActionPos = actionPositions[0];
+      const mgmtSignals = firstActionPos ? {
+        strategy: getTrackedPosition(firstActionPos.position)?.strategy ?? null,
+        volatility: getTrackedPosition(firstActionPos.position)?.volatility ?? null,
+        in_range: firstActionPos.in_range,
+        price_change_pct: null,  // not available at management time
+        fee_per_tvl: firstActionPos.fee_per_tvl_24h ?? null,
+      } : null;
 
       const { content } = await agentLoop(`
 MANAGEMENT ACTION REQUIRED — ${actionPositions.length} position(s)
@@ -494,12 +548,14 @@ RULES:
 - CLAIM: call claim_fees with position address
 - INSTRUCTION: evaluate the instruction condition. If met → close_position. If not → HOLD, do nothing.
 - ⚡ exit alerts: close immediately, no exceptions
+- fee_velocity: "accelerating" = pool heating up (consider holding even if yield was low). "decelerating" = pool dying (execute close decisively).
 
 Execute the required actions. Do NOT re-evaluate CLOSE/CLAIM — rules already applied. Just execute.
 After executing, write a brief one-line result per position.
       `, config.llm.maxSteps, [], "MANAGER", config.llm.managementModel, 2048, {
         onToolStart: async ({ name }) => { await liveMessage?.toolStart(name); },
         onToolFinish: async ({ name, result, success }) => { await liveMessage?.toolFinish(name, result, success); },
+        lessonSignals: mgmtSignals,
       });
 
       mgmtReport += `\n\n${content}`;
@@ -699,6 +755,7 @@ export async function runScreeningCycle({ silent = false } = {}) {
 
     // Build compact candidate blocks
     const candidateBlocks = passing.map(({ pool, sw, n, ti, mem }, i) => {
+      const poolStats = getPoolMemoryStats(pool.pool);
       const botPct = ti?.audit?.bot_holders_pct ?? "?";
       const top10Pct = ti?.audit?.top_holders_pct ?? "?";
       const feesSol = ti?.global_fees_sol ?? "?";
@@ -771,6 +828,19 @@ export async function runScreeningCycle({ silent = false } = {}) {
         reversalRisk ? `  ⚠️ REVERSAL RISK: price ${priceChange}%, net_buyers=${netBuyers} — bearish distribution signal, skip unless strong counter-evidence` : null,
         n?.narrative ? `  narrative_untrusted: ${sanitizeUntrustedPromptText(n.narrative, 500)}` : `  narrative_untrusted: none`,
         mem ? `  memory_untrusted: ${sanitizeUntrustedPromptText(mem, 500)}` : null,
+        poolStats ? `  pool_history: ${poolStats}` : `  pool_history: no history`,
+        (() => {
+          const candSignals = {
+            strategy: strategyHint?.strategy,
+            volatility: pool.volatility,
+            price_change_pct: ti?.stats_1h?.price_change ?? null,
+            volume_trend: pool.volume_change_pct ?? null,
+          };
+          const topLessons = getRelevantLessons(candSignals, 2);
+          return topLessons.length
+            ? `  relevant_lessons: ${topLessons.map(l => l.rule.slice(0, 100)).join(" | ")}`
+            : null;
+        })(),
       ].filter(Boolean).join("\n");
 
       return block;

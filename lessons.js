@@ -469,9 +469,67 @@ const ROLE_TAGS = {
   GENERAL:  [],
 };
 
+// ─── Relevance Scoring ────────────────────────────────────────
+
+/**
+ * Score lessons by relevance to current pool/position signals.
+ * Uses tag + keyword matching — no ML required.
+ *
+ * @param {Array} lessons
+ * @param {Object} signals - { strategy, volatility, price_change_pct, volume_trend, in_range, fee_per_tvl }
+ * @returns lessons sorted descending by relevance score
+ */
+function scoreByRelevance(lessons, signals = {}) {
+  const activeKeywords = new Set();
+
+  if (signals.strategy) activeKeywords.add(signals.strategy);
+
+  if (signals.volatility != null) {
+    if (signals.volatility >= 3) { activeKeywords.add("high_vol"); activeKeywords.add("volatility"); }
+    else if (signals.volatility < 2) { activeKeywords.add("low_vol"); activeKeywords.add("spot"); }
+    else activeKeywords.add("volatility");
+  }
+
+  if (signals.price_change_pct != null) {
+    if (signals.price_change_pct < -15) { activeKeywords.add("price_dump"); activeKeywords.add("timing"); activeKeywords.add("entry"); }
+    else if (signals.price_change_pct > 10) { activeKeywords.add("entry"); activeKeywords.add("timing"); }
+  }
+
+  if (signals.volume_trend != null) {
+    if (signals.volume_trend < -30) { activeKeywords.add("volume_collapse"); activeKeywords.add("screening"); }
+    else if (signals.volume_trend > 20) { activeKeywords.add("volume_surge"); activeKeywords.add("screening"); }
+  }
+
+  if (signals.in_range === false) { activeKeywords.add("oor"); activeKeywords.add("management"); }
+
+  if (signals.fee_per_tvl != null && signals.fee_per_tvl < 5) {
+    activeKeywords.add("fees"); activeKeywords.add("low_tvl");
+  }
+
+  if (activeKeywords.size === 0) return lessons;
+
+  return lessons
+    .map(l => {
+      const tagScore = (l.tags || []).filter(t => activeKeywords.has(t)).length;
+      const ruleScore = l.rule ? [...activeKeywords].filter(kw => l.rule.toLowerCase().includes(kw)).length : 0;
+      return { ...l, _score: tagScore + ruleScore };
+    })
+    .sort((a, b) => b._score - a._score || (b.pnl_pct ?? 0) - (a.pnl_pct ?? 0));
+}
+
+/**
+ * Get top N lessons most relevant to the given signals.
+ * Used to inject per-candidate context in screening cycle.
+ */
+export function getRelevantLessons(signals, limit = 3) {
+  const data = load();
+  if (!data.lessons.length) return [];
+  return scoreByRelevance(data.lessons, signals).slice(0, limit);
+}
+
 export function getLessonsForPrompt(opts = {}) {
   if (typeof opts === "number") opts = { maxLessons: opts };
-  const { agentType = "GENERAL", maxLessons } = opts;
+  const { agentType = "GENERAL", maxLessons, signals = null } = opts;
   const data = load(); if (data.lessons.length === 0) return null;
 
   const isAuto = agentType === "SCREENER" || agentType === "MANAGER";
@@ -479,8 +537,14 @@ export function getLessonsForPrompt(opts = {}) {
   const outP = { bad:0, poor:1, failed:1, good:2, worked:2, manual:1, neutral:3, evolution:2 };
   const byP = (a, b) => (outP[a.outcome]??3) - (outP[b.outcome]??3);
 
+  // Top 3 most relevant lessons based on current signals (shown first, before role-based)
+  const relevant = signals
+    ? scoreByRelevance(data.lessons.filter(l => !l.pinned), signals).slice(0, 3)
+    : [];
+  const relevantIds = new Set(relevant.map(l => l.id));
+
   const pinned = data.lessons.filter((l) => l.pinned && (!l.role || l.role === agentType || agentType === "GENERAL")).sort(byP).slice(0, PINNED_CAP);
-  const usedIds = new Set(pinned.map((l) => l.id));
+  const usedIds = new Set([...pinned.map((l) => l.id), ...relevantIds]);
   const roleTags = ROLE_TAGS[agentType] || [];
   const roleMatched = data.lessons.filter((l) => {
     if (usedIds.has(l.id)) return false;
@@ -489,9 +553,10 @@ export function getLessonsForPrompt(opts = {}) {
   roleMatched.forEach((l) => usedIds.add(l.id));
   const rem = RECENT_CAP - pinned.length - roleMatched.length;
   const recent = rem > 0 ? data.lessons.filter((l) => !usedIds.has(l.id)).sort((a,b) => (b.created_at||"").localeCompare(a.created_at||"")).slice(0, rem) : [];
-  const selected = [...pinned, ...roleMatched, ...recent];
+  const selected = [...relevant, ...pinned, ...roleMatched, ...recent];
   if (selected.length === 0) return null;
   const sections = [];
+  if (relevant.length) sections.push(`── RELEVANT (${relevant.length}) ──\n` + fmt(relevant));
   if (pinned.length) sections.push(`── PINNED (${pinned.length}) ──\n` + fmt(pinned));
   if (roleMatched.length) sections.push(`── ${agentType} (${roleMatched.length}) ──\n` + fmt(roleMatched));
   if (recent.length) sections.push(`── RECENT (${recent.length}) ──\n` + fmt(recent));

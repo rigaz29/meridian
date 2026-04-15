@@ -163,11 +163,11 @@ function isToolChoiceRequiredError(error) {
  * @returns {string} - The agent's final text response
  */
 export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHistory = [], agentType = "GENERAL", model = null, maxOutputTokens = null, options = {}) {
-  const { requireTool = false, interactive = false, onToolStart = null, onToolFinish = null } = options;
+  const { requireTool = false, interactive = false, onToolStart = null, onToolFinish = null, lessonSignals = null } = options;
   // Build dynamic system prompt with current portfolio state
   const [portfolio, positions] = await Promise.all([getWalletBalances(), getMyPositions()]);
   const stateSummary = getStateSummary();
-  const lessons = getLessonsForPrompt({ agentType });
+  const lessons = getLessonsForPrompt({ agentType, signals: lessonSignals });
   const perfSummary = getPerformanceSummary();
   const systemPrompt = buildSystemPrompt(agentType, portfolio, positions, stateSummary, lessons, perfSummary);
 
@@ -425,4 +425,27 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Lightweight single-shot LLM call — no tools, no full agentLoop setup overhead.
+ * Used for confirmations and quick yes/no reasoning.
+ * Returns the response text string, or null on error.
+ */
+export async function quickLLMCall(userPrompt, { model = null, maxTokens = 128, systemPrompt = null } = {}) {
+  try {
+    const activeModel = model || DEFAULT_MODEL;
+    const messages = [];
+    if (systemPrompt) messages.push({ role: "system", content: systemPrompt });
+    messages.push({ role: "user", content: userPrompt });
+    const response = await client.chat.completions.create({
+      model: activeModel,
+      max_tokens: maxTokens,
+      messages,
+    });
+    return response.choices?.[0]?.message?.content || null;
+  } catch (err) {
+    log("agent_warn", `quickLLMCall failed: ${err.message}`);
+    return null;
+  }
 }

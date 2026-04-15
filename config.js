@@ -94,6 +94,9 @@ export const config = {
     autoClaimPct:          u.autoClaimPct          ?? 5,    // claim when unclaimed fees >= X% of position value
     // SOL mode — positions, PnL, and balances reported in SOL instead of USD
     solMode:               u.solMode               ?? false,
+    // LLM exit confirmation — ask LLM to confirm or veto Rules 2-5 before closing
+    llmConfirmExit:        u.llmConfirmExit        ?? false,  // opt-in: adds ~1-3s per position needing confirmation
+    llmConfirmRules:       u.llmConfirmRules       ?? [2, 3, 4, "4b", 5],  // which rules require LLM confirmation
   },
 
   // ─── Strategy Mapping ───────────────────

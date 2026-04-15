@@ -475,6 +475,84 @@ export function computeStrategyRecommendation(poolAddress, signals = {}) {
 }
 
 /**
+ * Returns a compact trusted stats string for SCREENER candidate blocks.
+ * Computed from our own aggregates — never LLM/user-generated text, safe to inject without sanitization.
+ */
+export function getPoolMemoryStats(poolAddress) {
+  if (!poolAddress) return null;
+  const db = load();
+  const entry = db[poolAddress];
+  if (!entry || entry.total_deploys === 0) return null;
+
+  const parts = [
+    `deploys=${entry.total_deploys}`,
+    `win_rate=${entry.win_rate}%`,
+  ];
+  if (entry.adjusted_win_rate_sample_count >= 2) {
+    parts.push(`adj_win_rate=${entry.adjusted_win_rate}%`);
+  }
+  if (entry.avg_pnl_pct != null) {
+    parts.push(`avg_pnl=${entry.avg_pnl_pct >= 0 ? "+" : ""}${entry.avg_pnl_pct}%`);
+  }
+  if (entry.last_outcome) parts.push(`last=${entry.last_outcome}`);
+  return parts.join(", ");
+}
+
+/**
+ * Calculate fee accumulation velocity from recent position snapshots.
+ * Detects if fees are accelerating, stable, or decelerating — useful for hold/close decisions.
+ * Returns { usd_per_hour, trend: "accelerating"|"stable"|"decelerating", sample_count } or null.
+ */
+export function getFeeVelocity(poolAddress) {
+  if (!poolAddress) return null;
+  const db = load();
+  const entry = db[poolAddress];
+  const allSnaps = (entry?.snapshots || []).filter(s => s.unclaimed_fees_usd != null);
+  if (allSnaps.length < 3) return null;
+
+  // Use last 12 snapshots (~1h at 5min intervals)
+  const window = allSnaps.slice(-12);
+
+  // Guard: skip values before last fee-claim reset (near-zero value = fees were claimed)
+  const resetIdx = window.reduceRight((found, s, i) =>
+    found === -1 && s.unclaimed_fees_usd < 0.01 ? i : found, -1);
+  const safeWindow = resetIdx >= 0 ? window.slice(resetIdx + 1) : window;
+  if (safeWindow.length < 3) return null;
+
+  const oldest = safeWindow[0];
+  const newest = safeWindow[safeWindow.length - 1];
+  const feeGain = newest.unclaimed_fees_usd - oldest.unclaimed_fees_usd;
+  const elapsedMs = new Date(newest.ts).getTime() - new Date(oldest.ts).getTime();
+  if (elapsedMs <= 0) return null;
+
+  const usd_per_hour = (feeGain / elapsedMs) * 3_600_000;
+
+  // Detect acceleration vs deceleration by comparing two halves of the window
+  const mid = Math.floor(safeWindow.length / 2);
+  const firstHalf = safeWindow.slice(0, mid);
+  const secondHalf = safeWindow.slice(mid);
+
+  function halfRate(half) {
+    if (half.length < 2) return 0;
+    const dt = new Date(half[half.length - 1].ts).getTime() - new Date(half[0].ts).getTime();
+    if (dt <= 0) return 0;
+    return (half[half.length - 1].unclaimed_fees_usd - half[0].unclaimed_fees_usd) / dt;
+  }
+
+  const r1 = halfRate(firstHalf);
+  const r2 = halfRate(secondHalf);
+  const trend = r2 > r1 * 1.25 ? "accelerating"
+    : r2 < r1 * 0.75 ? "decelerating"
+    : "stable";
+
+  return {
+    usd_per_hour: Math.round(usd_per_hour * 100) / 100,
+    trend,
+    sample_count: safeWindow.length,
+  };
+}
+
+/**
  * Tool handler: add_pool_note
  * Agent can annotate a pool with a freeform note.
  */
