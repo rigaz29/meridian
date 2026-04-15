@@ -142,7 +142,7 @@ export async function deployPosition({
   const activeStrategy = strategy || strategyRec?.strategy || config.strategy.strategy;
 
   const vol = (typeof volatility === "number" && volatility >= 0) ? volatility : 2.5;
-  const targetDownside = Math.min(0.50, 0.32 + (vol / 5) * 0.09);  // vol=0→32%, vol=2.5→36.5%, vol=5→41%, cap=50%
+  const targetDownside = Math.min(0.50, 0.35 + (vol / 5) * 0.09);  // vol=0→35%, vol=2.5→39.5%, vol=5→44%, cap=50%
   const targetUpside   = Math.min(0.35, 0.15 + (vol / 5) * 0.15);  // vol=0→15%, vol=2.5→22.5%, vol=5→30%
 
   // Preliminary estimate using provided bin_step (used for DRY_RUN and wide-range check)
