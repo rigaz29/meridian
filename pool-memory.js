@@ -164,9 +164,9 @@ export function recordPoolDeploy(poolAddress, deployData) {
   }
 
   // ── Cooldown rules ──────────────────────────────────────────────────────
-  // Rule 1: Velocity/Price-drop SL → oorCooldownHours (default 6h) — token was crashing, needs stabilisation
+  // Rule 1: Velocity/Price-drop SL → oorCooldownHours (default 4h) — token was crashing, needs stabilisation
   if (isSlCloseReason(deploy.close_reason)) {
-    const slHours = config.management.oorCooldownHours ?? 6;
+    const slHours = config.management.oorCooldownHours ?? 4;
     const cooldownUntil = setPoolCooldown(entry, slHours, "velocity/price-drop SL");
     log("pool-memory", `Cooldown ${slHours}h set for ${entry.name} until ${cooldownUntil} (SL close)`);
 
@@ -185,8 +185,9 @@ export function recordPoolDeploy(poolAddress, deployData) {
         ).length;
       }, 0);
       if (recentSlCount >= triggerCount) {
-        setBaseMintCooldown(db, baseMint, slHours, `${recentSlCount} SL closes in 48h`);
-        log("pool-memory", `Token cooldown ${slHours}h set for mint ${baseMint.slice(0, 8)} (${recentSlCount} SL closes in 48h)`);
+        const mintHours = config.management.mintCooldownHours ?? 24;
+        setBaseMintCooldown(db, baseMint, mintHours, `${recentSlCount} SL closes in 48h`);
+        log("pool-memory", `Token cooldown ${mintHours}h set for mint ${baseMint.slice(0, 8)} (${recentSlCount} SL closes in 48h)`);
       }
     }
 
