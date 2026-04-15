@@ -733,6 +733,12 @@ export async function runScreeningCycle({ silent = false } = {}) {
       return true;
     });
 
+    // Notify Telegram for each pool that was filtered out during recon
+    if (filteredOut.length > 0 && telegramEnabled()) {
+      const lines = filteredOut.map(e => `• <b>${e.name}</b> — ${e.reason}`).join("\n");
+      sendHTML(`🔍 <b>Screening — ${filteredOut.length} pool disaring</b>\n${lines}`).catch(() => {});
+    }
+
     if (passing.length === 0) {
       const examples = filteredOut.slice(0, 3)
         .map((entry) => `- ${entry.name}: ${entry.reason}`)

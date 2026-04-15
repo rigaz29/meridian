@@ -31,7 +31,7 @@ import { execSync, spawn } from "child_process";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const USER_CONFIG_PATH = path.join(__dirname, "../user-config.json");
 import { log, logAction } from "../logger.js";
-import { notifyDeploy, notifyClose, notifySwap } from "../telegram.js";
+import { notifyDeploy, notifyClose, notifySwap, sendHTML, isEnabled as telegramEnabled } from "../telegram.js";
 
 // Registered by index.js so update_config can restart cron jobs when intervals change
 let _cronRestarter = null;
@@ -561,16 +561,30 @@ async function runSafetyChecks(name, args) {
               const ema  = ind.ema_trend;
               const vwap = ind.vwap_vs_price_pct ?? 0;
               if (ema === "downtrend" && atr > 40) {
-                return {
-                  pass: false,
-                  reason: `Indicator filter: ATR=${atr}% > 40% with EMA downtrend — extreme volatility in a falling market. Historical win rate 50%, avg PnL -2.93%. Skip.`,
-                };
+                const reason = `Indicator filter: ATR=${atr}% > 40% with EMA downtrend — extreme volatility in a falling market. Historical win rate 50%, avg PnL -2.93%. Skip.`;
+                const poolName = args.pool_name || args.pool_address?.slice(0, 8);
+                if (telegramEnabled()) {
+                  sendHTML(
+                    `🚫 <b>Deploy blocked — ${poolName}</b>\n` +
+                    `<code>ATR ${atr}% + downtrend</code>\n` +
+                    `⚡ ATR terlalu ekstrem saat harga turun\n` +
+                    `📊 Historis: WR 50%, avg PnL -2.93%`
+                  ).catch(() => {});
+                }
+                return { pass: false, reason };
               }
               if (ema === "downtrend" && vwap < -30) {
-                return {
-                  pass: false,
-                  reason: `Indicator filter: price ${vwap}% below VWAP with EMA downtrend — deep price weakness. Historical win rate 58%, avg PnL -1.21%. Skip.`,
-                };
+                const reason = `Indicator filter: price ${vwap}% below VWAP with EMA downtrend — deep price weakness. Historical win rate 58%, avg PnL -1.21%. Skip.`;
+                const poolName = args.pool_name || args.pool_address?.slice(0, 8);
+                if (telegramEnabled()) {
+                  sendHTML(
+                    `🚫 <b>Deploy blocked — ${poolName}</b>\n` +
+                    `<code>VWAP delta ${vwap}% + downtrend</code>\n` +
+                    `📉 Harga jauh di bawah VWAP saat tren turun\n` +
+                    `📊 Historis: WR 58%, avg PnL -1.21%`
+                  ).catch(() => {});
+                }
+                return { pass: false, reason };
               }
             }
           }
