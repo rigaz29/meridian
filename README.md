@@ -455,6 +455,8 @@ All fields are optional — defaults shown. Edit `user-config.json`.
 | `minFeePerTvl24h` | `7` | Minimum fee yield % per 24h before yield check can trigger close |
 | `minAgeBeforeYieldCheck` | `90` | Minutes before low yield can trigger close |
 | `minFeesEarnedForYieldExit` | `0.20` | Minimum unclaimed fees (USD) before low yield close can trigger |
+| `llmConfirmExit` | `false` | Ask LLM to confirm or veto Rules 2–5 exits before executing. Adds ~1–3s per position. Uses fee velocity and pool memory as context. Default off — opt in when you want the LLM to have a say over hardcoded exits. |
+| `llmConfirmRules` | `[2,3,4,"4b",5]` | Which rule numbers require LLM confirmation when `llmConfirmExit=true`. Remove rules you want to stay fully deterministic. |
 
 ### Strategy
 
@@ -690,6 +692,64 @@ node cli.js evolve
 ```
 
 This analyzes closed position performance (win rate, avg PnL, fee yields) and automatically adjusts screening thresholds in `user-config.json`. Changes take effect immediately.
+
+---
+
+## LLM intelligence
+
+Meridian continuously feeds richer context to the LLM so it makes better decisions with each cycle.
+
+### Pool history stats (SCREENER)
+
+Every screening candidate now includes a trusted `pool_history` line computed from Meridian's own deploy records — not from LLM-generated notes:
+
+```
+pool_history: deploys=3, win_rate=67%, adj_win_rate=80%, avg_pnl=+2.3%, last=profit
+```
+
+The LLM uses this to prefer proven pools (win rate ≥ 80%, ≥ 3 deploys) and skip consistently bad ones.
+
+`adj_win_rate` excludes OOR/pump exits — a cleaner quality signal than raw win rate for pools that occasionally get pumped out of range.
+
+### Fee velocity (MANAGER)
+
+Every management action block now includes a `fee_velocity` line showing how fast unclaimed fees are growing:
+
+```
+fee_velocity: $0.45/hr (accelerating, n=8)
+```
+
+| Trend | Meaning | LLM guidance |
+|---|---|---|
+| `accelerating` | Fees growing faster than before | Pool heating up — reconsider close if rule was yield-based |
+| `stable` | Consistent fee rate | Proceed with rule as planned |
+| `decelerating` | Fees slowing down | Pool dying — execute close decisively |
+
+Velocity is calculated from the last ~12 position snapshots (~1 hour at 5-min intervals). Post-claim resets (fee counter drops to near 0) are automatically detected and excluded.
+
+### Relevant lessons (context-aware)
+
+Instead of injecting the same 50 lessons every cycle, lessons are now scored by relevance to the current pool's signals — strategy, volatility, price trend, volume, OOR state, and yield — and the top matches appear first in the `── RELEVANT ──` section.
+
+The SCREENER also injects per-candidate `relevant_lessons` directly into each candidate block, so the LLM sees the most applicable historical lessons next to the pool it's evaluating:
+
+```
+relevant_lessons: AVOID: TOKEN/SOL-type pools (volatility=4, bid_ask) — OOR 70% of the time | PATTERN: Quick win (<2h hold, PnL +6.1%). Short-hold works for high-volume pools.
+```
+
+### LLM exit confirmation (opt-in)
+
+By default, Rules 2–5 (take profit, far above range, OOR timeout, low yield) are hardcoded JS decisions — fast and deterministic. Enable `llmConfirmExit` to add an LLM gate before each close fires:
+
+```json
+{ "llmConfirmExit": true }
+```
+
+When enabled, the LLM receives the position's context — PnL, age, fee velocity, pool memory, the rule that triggered — and responds with `CONFIRM` or `VETO`. A veto converts the action to `STAY` for that cycle.
+
+The LLM uses fee velocity to inform its decision: accelerating fees are a strong signal to veto a yield-based close; decelerating fees confirm the close is correct.
+
+On LLM timeout or error, the gate defaults to `CONFIRM` — positions are never stuck open by infrastructure failures.
 
 ---
 
