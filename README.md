@@ -439,6 +439,7 @@ All fields are optional — defaults shown. Edit `user-config.json`.
 | `downsideOorWaitMinutes` | `5` | Minutes OOR (downside) before closing — fast exit, recovery from below range is rare |
 | `stopLossPct` | `-20` | Close if PnL drops below this % (with 15s confirmation to filter data glitches) |
 | `priceDropSLPct` | `-15` | Close immediately if token price drops X% from entry bin — fee-independent, bypasses LLM |
+| `velocitySLEnabled` | `true` | Enable or disable velocity stop-loss entirely |
 | `pnlVelocitySLPct` | `5` | Close if PnL drops X% within the velocity window — catches freefalls before hitting `stopLossPct` |
 | `pnlVelocityWindowSec` | `90` | Rolling window in seconds for velocity SL measurement |
 | `minAgeBeforeSL` | `7` | Minutes before any stop loss can trigger |
@@ -458,9 +459,24 @@ All fields are optional — defaults shown. Edit `user-config.json`.
 | Field | Default | Description |
 |---|---|---|
 | `strategy` | `bid_ask` | LP distribution strategy (`bid_ask`, `spot`, `curve`) |
+| `lpStrategyMode` | `auto` | How to pick bid_ask vs spot: `auto` (signal-based, LLM decides), `bid_ask` (always bid_ask), `spot` (always spot), `fee_tvl` (decide by fee/TVL ratio — see below) |
+| `ftvlThreshold` | `1.2` | Fee/TVL threshold for `fee_tvl` mode: ≤ threshold → spot, > threshold → bid_ask. Always measured at 1h timeframe regardless of screening timeframe. |
 | `binsBelow` | `69` | Bins below active bin (overrides volatility formula when set) |
 | `targetDownsidePct` | `0.35` | Cover X% price drop below active bin |
 | `targetUpsidePct` | `0.20` | Cover X% price rise above active bin |
+
+#### lpStrategyMode
+
+Controls how the screener chooses between `bid_ask` and `spot` for each deployed position:
+
+| Mode | Behaviour |
+|---|---|
+| `auto` | LLM picks based on pool signals (volatility, smart money, price momentum). Default. |
+| `bid_ask` | Always use `bid_ask`, ignoring pool signals. |
+| `spot` | Always use `spot`, ignoring pool signals. |
+| `fee_tvl` | Rule-based: compare pool's 1h `fee_active_tvl_ratio` against `ftvlThreshold`. ≤ threshold → `spot`, > threshold → `bid_ask`. Based on 206-position backtest: fee/TVL ≥ 1.2 gives bid_ask a +1.59pp edge; fee/TVL < 0.6 gives spot a +1.20pp edge. |
+
+The `fee_tvl` mode always fetches fee/TVL at **1h timeframe** to match the historical data lessons were derived from — regardless of what `timeframe` is configured for screening.
 
 ### Schedule
 
@@ -550,7 +566,7 @@ Use this to correlate which entry conditions (price dip depth, volume health, sm
 
 ## Exit system
 
-Meridian uses multiple layers of protection running in parallel. The 30-second PnL poller checks all layers between management cycles — exits fire immediately without waiting for the next scheduled cycle.
+Meridian uses multiple layers of protection running in parallel. A lightweight PnL poller runs every 10–12 seconds (randomised to avoid rate limits) and checks all layers between management cycles — exits fire immediately without waiting for the next scheduled cycle.
 
 ### Stop loss layers (priority order)
 
@@ -575,9 +591,12 @@ All stop losses respect `minAgeBeforeSL` (7 min) to avoid false triggers on fres
 
 | Rule | Trigger |
 |---|---|
-| Upside OOR | Active bin > upper bin for `outOfRangeWaitMinutes` (30m), scaled down by volatility |
+| Upside OOR (near ATH) | Active bin > upper bin while price is within 10% of ATH → 6h cooldown before close (pump may continue) |
+| Upside OOR (regular) | Active bin > upper bin, price not near ATH → `outOfRangeWaitMinutes` (30m default) before close |
 | Downside OOR | Active bin < lower bin for `downsideOorWaitMinutes` (5m) — faster because recovery is rare |
 | Far above range | Active bin > upper bin + `outOfRangeBinsToClose` — closes immediately, no wait |
+
+ATH-aware cooldown prevents premature exits during strong pumps. If price is within 10% of ATH, the upside OOR wait is extended to 6 hours automatically.
 
 ---
 

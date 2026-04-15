@@ -916,7 +916,7 @@ Summarize the current portfolio health, total fees earned, and performance of al
 
       for (const p of result.positions) {
         // ── Velocity SL: detect rapid PnL freefall ─────────────────────
-        if (!p.pnl_pct_suspicious && p.pnl_pct != null) {
+        if ((config.management.velocitySLEnabled ?? true) && !p.pnl_pct_suspicious && p.pnl_pct != null) {
           const now = Date.now();
           const windowMs = (config.management.pnlVelocityWindowSec ?? 90) * 1000;
           const hist = _pnlHistory.get(p.position) || [];
