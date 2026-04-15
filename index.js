@@ -16,6 +16,8 @@ import { getActiveStrategy } from "./strategy-library.js";
 import { recordPositionSnapshot, recallForPool, addPoolNote, computeStrategyRecommendation, getFeeVelocity, getPoolMemoryStats } from "./pool-memory.js";
 import { checkSmartWalletsOnPool } from "./smart-wallets.js";
 import { getTokenNarrative, getTokenInfo } from "./tools/token.js";
+import { fetchOHLCV } from "./meteora-api.js";
+import { computeIndicators } from "./tools/indicators.js";
 
 log("startup", "DLMM LP Agent starting...");
 log("startup", `Mode: ${process.env.DRY_RUN === "true" ? "DRY RUN" : "LIVE"}`);
@@ -688,17 +690,21 @@ export async function runScreeningCycle({ silent = false } = {}) {
     const allCandidates = [];
     for (const pool of candidates) {
       const mint = pool.base?.mint;
-      const [smartWallets, narrative, tokenInfo] = await Promise.allSettled([
+      const now = Math.floor(Date.now() / 1000);
+      const [smartWallets, narrative, tokenInfo, ohlcv] = await Promise.allSettled([
         checkSmartWalletsOnPool({ pool_address: pool.pool }),
         mint ? getTokenNarrative({ mint }) : Promise.resolve(null),
         mint ? getTokenInfo({ query: mint }) : Promise.resolve(null),
+        fetchOHLCV(pool.pool, { startTime: now - 31 * 3600, endTime: now + 3600, timeframe: "1h" }),
       ]);
+      const ohlcvCandles = ohlcv.status === "fulfilled" && Array.isArray(ohlcv.value) ? ohlcv.value : null;
       allCandidates.push({
         pool,
         sw: smartWallets.status === "fulfilled" ? smartWallets.value : null,
         n: narrative.status === "fulfilled" ? narrative.value : null,
         ti: tokenInfo.status === "fulfilled" ? tokenInfo.value?.results?.[0] : null,
         mem: recallForPool(pool.pool),
+        ind: ohlcvCandles && ohlcvCandles.length >= 5 ? computeIndicators(ohlcvCandles) : null,
       });
       await new Promise(r => setTimeout(r, 150)); // avoid 429s
     }
@@ -754,7 +760,7 @@ export async function runScreeningCycle({ silent = false } = {}) {
       : null;
 
     // Build compact candidate blocks
-    const candidateBlocks = passing.map(({ pool, sw, n, ti, mem }, i) => {
+    const candidateBlocks = passing.map(({ pool, sw, n, ti, mem, ind }, i) => {
       const poolStats = getPoolMemoryStats(pool.pool);
       const botPct = ti?.audit?.bot_holders_pct ?? "?";
       const top10Pct = ti?.audit?.top_holders_pct ?? "?";
@@ -829,6 +835,19 @@ export async function runScreeningCycle({ silent = false } = {}) {
         n?.narrative ? `  narrative_untrusted: ${sanitizeUntrustedPromptText(n.narrative, 500)}` : `  narrative_untrusted: none`,
         mem ? `  memory_untrusted: ${sanitizeUntrustedPromptText(mem, 500)}` : null,
         poolStats ? `  pool_history: ${poolStats}` : `  pool_history: no history`,
+        (() => {
+          if (!ind) return null;
+          const parts = [
+            ind.ema_trend   != null ? `ema=${ind.ema_trend}`                                    : null,
+            ind.rsi_14      != null ? `rsi=${ind.rsi_14}`                                       : null,
+            ind.bb_position != null ? `bb=${ind.bb_position}`                                   : null,
+            ind.atr_14_pct  != null ? `atr=${ind.atr_14_pct}%`                                  : null,
+            ind.vwap_vs_price_pct != null ? `vwap_delta=${ind.vwap_vs_price_pct > 0 ? "+" : ""}${ind.vwap_vs_price_pct}%` : null,
+            ind.consecutive_red != null ? `consec_red=${ind.consecutive_red}`                   : null,
+            ind.volume_spike != null ? `vol_spike=${ind.volume_spike ? "YES" : "no"}`           : null,
+          ].filter(Boolean).join(", ");
+          return parts ? `  indicators: ${parts}` : null;
+        })(),
         (() => {
           const candSignals = {
             strategy: strategyHint?.strategy,

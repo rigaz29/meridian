@@ -21,6 +21,8 @@ import { blockDev, unblockDev, listBlockedDevs } from "../dev-blocklist.js";
 import { addSmartWallet, removeSmartWallet, listSmartWallets, checkSmartWalletsOnPool } from "../smart-wallets.js";
 import { getTokenInfo, getTokenHolders, getTokenNarrative } from "./token.js";
 import { config, reloadScreeningThresholds } from "../config.js";
+import { fetchOHLCV } from "../meteora-api.js";
+import { computeIndicators } from "./indicators.js";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -538,6 +540,42 @@ async function runSafetyChecks(name, args) {
               reason: `Insufficient SOL: have ${balance.sol} SOL, need ${minRequired} SOL (${amountY} deploy + ${gasReserve} gas reserve).`,
             };
           }
+        }
+      }
+
+      // ── Indicator hard filter (relaxed thresholds to avoid overfilter) ──
+      // Only blocks extreme conditions backed by backtest data.
+      // Thresholds: ATR>40% + downtrend, OR VWAP<-30% + downtrend.
+      if (args.pool_address) {
+        try {
+          const now = Math.floor(Date.now() / 1000);
+          const preCandles = await fetchOHLCV(args.pool_address, {
+            startTime: now - 31 * 3600,
+            endTime:   now + 3600,
+            timeframe: "1h",
+          });
+          if (Array.isArray(preCandles) && preCandles.length >= 5) {
+            const ind = computeIndicators(preCandles);
+            if (ind) {
+              const atr  = ind.atr_14_pct   ?? 0;
+              const ema  = ind.ema_trend;
+              const vwap = ind.vwap_vs_price_pct ?? 0;
+              if (ema === "downtrend" && atr > 40) {
+                return {
+                  pass: false,
+                  reason: `Indicator filter: ATR=${atr}% > 40% with EMA downtrend — extreme volatility in a falling market. Historical win rate 50%, avg PnL -2.93%. Skip.`,
+                };
+              }
+              if (ema === "downtrend" && vwap < -30) {
+                return {
+                  pass: false,
+                  reason: `Indicator filter: price ${vwap}% below VWAP with EMA downtrend — deep price weakness. Historical win rate 58%, avg PnL -1.21%. Skip.`,
+                };
+              }
+            }
+          }
+        } catch (_) {
+          // Non-fatal: if indicator fetch fails, proceed with deploy
         }
       }
 

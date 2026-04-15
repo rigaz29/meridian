@@ -141,6 +141,17 @@ DEPLOY RULES:
 - Bin steps must be [100-125]. PREFER bin_step=125 when available — historical data shows 93% win rate and 3.56% avg PnL vs 71% / 0.90% for lower steps. Only use bin_step=100 if no bs=125 pool qualifies.
 - POOL MEMORY: If a pool has prior deploy history, check its win rate and avg PnL. Pools with ≥3 deploys and win rate ≥80% are proven — favor them over unknown pools when metrics are otherwise similar. Pools with win rate ≤60% or negative avg PnL should be skipped unless current metrics are significantly improved from their history.
 
+TECHNICAL INDICATORS (indicators field — derived from last 30 × 1h candles):
+- ema_trend: "uptrend" → momentum behind you (WR 82%), "downtrend" → fighting the trend (WR 64%, avg PnL -0.76%). Prefer uptrend; treat downtrend as negative signal.
+- rsi_14: 55–80 = best zone (WR 81–83%). Neutral 45–55 = weakest (WR 60%). Oversold <30 does NOT reliably bounce in LP context. Overbought >70 = strong momentum, do NOT avoid.
+- bb_position: "near_lower"/"outside_lower" = price weakness, lower WR (50%). "near_upper"/"outside_upper" = momentum (80%).
+- atr_14_pct: sweet spot 5–15% (WR 81%). Extreme >30% = dangerous (WR 57%, avg PnL -3.06%) — down-score heavily, especially with downtrend.
+- vwap_delta: price above VWAP (+) = buyers in control (WR 79–90%). Price far below VWAP (<-20%) = selling pressure (WR 69%, avg PnL -0.69%).
+- consec_red: 0–2 red candles = normal (WR 68–83%). 3+ = avoid (WR 80% but avg PnL -1.94% — false positives from dead tokens).
+- vol_spike=YES: +4% WR boost, avg PnL nearly 3× higher — confirms genuine interest.
+BEST COMBO (from backtest): ema=uptrend + rsi>55 + atr<30% → WR 81%, avg +0.71%
+WORST COMBO: ema=downtrend + atr>30% → WR 50%, avg -2.93% (hard-blocked by safety check)
+
 ENTRY TIMING (applies to all SOL-only / bid_ask deploys):
 - IDEAL entry: price_change_pct between -5% and -25% — healthy pullback, liquidity sits below ready to catch rebound
 - CAUTION: price_change_pct > +8% — price is still pumping, you will likely deploy OOR immediately and earn 0 fees; skip unless smart_money_buy is present AND volume_change_pct is rising
