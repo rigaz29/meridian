@@ -100,7 +100,7 @@ export const config = {
   strategy: {
     strategy:         u.strategy         ?? "bid_ask",
     lpStrategyMode:      u.lpStrategyMode      ?? "auto",  // "bid_ask" | "spot" | "auto" | "fee_tvl"
-    ftvlThreshold:       u.ftvlThreshold       ?? 0.6,    // fee_tvl mode: fee/tvl <= this → spot, > this → bid_ask
+    ftvlThreshold:       u.ftvlThreshold       ?? 1.2,   // fee_tvl mode: fee/tvl <= this → spot, > this → bid_ask (1.2 = backtest cutoff where bid_ask wins +1.59pp)
     targetDownsidePct: u.targetDownsidePct ?? 0.35,  // cover X% price drop below active bin
     targetUpsidePct:   u.targetUpsidePct   ?? 0.20,  // cover X% price rise above active bin (spot only)
     binsAboveBuffer:   u.binsAboveBuffer   ?? 12,    // empty buffer bins above active bin for SOL-only/bid_ask deploys — extends maxBinId upward to delay OOR-above trigger (no fees earned, but OOR clock doesn't start). Backtest avg pump causing OOR-above = 14.1%, so 10–12 bins covers most cases for bs=100
