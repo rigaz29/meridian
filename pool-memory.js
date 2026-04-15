@@ -163,18 +163,19 @@ export function recordPoolDeploy(poolAddress, deployData) {
   }
 
   // ── Cooldown rules ──────────────────────────────────────────────────────
-  // Rule 1: Velocity/Price-drop SL → 6h (token was crashing, needs stabilisation)
+  // Rule 1: Velocity/Price-drop SL → oorCooldownHours (default 6h) — token was crashing, needs stabilisation
   if (isSlCloseReason(deploy.close_reason)) {
-    const cooldownUntil = setPoolCooldown(entry, 6, "velocity/price-drop SL");
-    log("pool-memory", `Cooldown 6h set for ${entry.name} until ${cooldownUntil} (SL close)`);
+    const slHours = config.management.oorCooldownHours ?? 6;
+    const cooldownUntil = setPoolCooldown(entry, slHours, "velocity/price-drop SL");
+    log("pool-memory", `Cooldown ${slHours}h set for ${entry.name} until ${cooldownUntil} (SL close)`);
   // Rule 2: Low yield → 2h (pool dry, wait for volume to rebuild)
   } else if (isLowYieldCloseReason(deploy.close_reason)) {
     const cooldownUntil = setPoolCooldown(entry, 2, "low yield");
     log("pool-memory", `Cooldown 2h set for ${entry.name} until ${cooldownUntil} (low yield close)`);
-  // Rule 3: OOR situasional (cek upside dulu — "Rule 3: pumped" tidak mengandung kata "oor")
-  //   - upside OOR + harga di ATH (price_vs_ath_pct >= 95) → 6h (kemungkinan koreksi besar)
-  //   - upside OOR + belum ATH                             → 30min
-  //   - downside OOR                                       → tidak ada cooldown
+  // Rule 3: Situational OOR (check upside first — "Rule 3: pumped" does not contain "oor")
+  //   - upside OOR + price at ATH (price_vs_ath_pct >= 95) → 6h (likely large correction ahead)
+  //   - upside OOR + not at ATH                            → 30min
+  //   - downside OOR                                       → no cooldown
   } else if (isUpsideOorCloseReason(deploy.close_reason)) {
     const isAtAth = deploy.price_vs_ath_pct != null && deploy.price_vs_ath_pct >= 95;
     if (isAtAth) {
@@ -185,7 +186,7 @@ export function recordPoolDeploy(poolAddress, deployData) {
       const cooldownUntil = setPoolCooldown(entry, 0.5, `upside OOR not ATH${athNote}`);
       log("pool-memory", `Cooldown 30min set for ${entry.name} until ${cooldownUntil} (upside OOR not ATH${athNote})`);
     }
-    // downside OOR (isOorCloseReason tapi bukan upside) → tidak ada cooldown
+    // downside OOR (isOorCloseReason but not upside) → no cooldown
   }
 
   save(db);

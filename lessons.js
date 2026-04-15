@@ -81,7 +81,7 @@ export async function recordPerformance(perf) {
   // Rolling window — keep last 500 records to prevent unbounded file growth
   if (data.performance.length > 500) data.performance = data.performance.slice(-500);
 
-  const lesson = derivLesson(entry);
+  const lesson = deriveLesson(entry);
   if (lesson) { data.lessons.push(lesson); log("lessons", `New lesson: ${lesson.rule}`); }
   save(data);
 
@@ -144,7 +144,7 @@ async function enrichFromMeteora(entry) {
 
 // ─── Derive Lesson (Enhanced) ─────────────────────────────────
 
-function derivLesson(perf) {
+function deriveLesson(perf) {
   const tags = [];
   const outcome = perf.pnl_pct >= 5 ? "good" : perf.pnl_pct >= 0 ? "neutral" : perf.pnl_pct >= -5 ? "poor" : "bad";
   if (outcome === "neutral") return null;
@@ -397,7 +397,7 @@ export async function bootstrapFromHistory(walletAddress, { limit = 25, force = 
 
     data.performance.push(entry);
     imported++;
-    const lesson = derivLesson(entry);
+    const lesson = deriveLesson(entry);
     if (lesson) { lesson.tags.push("bootstrap"); data.lessons.push(lesson); lessonsGenerated++; }
   }
 
@@ -409,7 +409,7 @@ export async function bootstrapFromHistory(walletAddress, { limit = 25, force = 
 // ─── Helpers ───────────────────────────────────────────────────
 
 function isFiniteNum(n) { return typeof n === "number" && isFinite(n); }
-function avg(arr) { return arr.reduce((s, x) => s + x, 0) / arr.length; }
+function avg(arr) { if (!arr.length) return null; return arr.reduce((s, x) => s + x, 0) / arr.length; }
 function percentile(arr, p) {
   const sorted = [...arr].sort((a, b) => a - b);
   const idx = (p / 100) * (sorted.length - 1);

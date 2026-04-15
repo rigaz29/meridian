@@ -19,7 +19,7 @@ import { getTokenNarrative, getTokenInfo } from "./tools/token.js";
 
 log("startup", "DLMM LP Agent starting...");
 log("startup", `Mode: ${process.env.DRY_RUN === "true" ? "DRY RUN" : "LIVE"}`);
-log("startup", `Model: ${process.env.LLM_MODEL || "hermes-3-405b"}`);
+log("startup", `Model: ${config.llm.managementModel}`);
 
 // Auto-swap base token to SOL after direct closes (trailing TP, stop loss, /close command)
 // This mirrors the auto-swap logic in executor.js for LLM-triggered closes.
@@ -93,6 +93,7 @@ const _peakConfirmTimers = new Map();
 const _trailingDropConfirmTimers = new Map();
 const _stopLossConfirmTimers = new Map();
 const _pnlHistory = new Map(); // positionAddress → [{ts, pnl_pct}] — for velocity SL
+let _pnlPollTimeout = null; // module-level so stopCronJobs() can always clear the latest timer
 const _closingPositions = new Set(); // mutex — prevents concurrent close attempts on same position
 const TRAILING_PEAK_CONFIRM_DELAY_MS = 15_000;
 const TRAILING_PEAK_CONFIRM_TOLERANCE = 0.85;
@@ -291,7 +292,7 @@ async function maybeRunMissedBriefing() {
 
 function stopCronJobs() {
   for (const task of _cronTasks) task.stop();
-  if (_cronTasks._pnlPollTimeout) clearTimeout(_cronTasks._pnlPollTimeout);
+  if (_pnlPollTimeout) { clearTimeout(_pnlPollTimeout); _pnlPollTimeout = null; }
   _cronTasks = [];
 }
 
@@ -895,7 +896,6 @@ Summarize the current portfolio health, total fees earned, and performance of al
 
   // Lightweight PnL poller (10–12s random) — updates trailing TP / velocity SL state between management cycles, no LLM
   let _pnlPollBusy = false;
-  let _pnlPollTimeout = null;
   const _pnlPollNextDelay = () => 10_000 + Math.random() * 2_000; // 10–12s random
 
   const _runPnlPoll = async () => {
@@ -1016,8 +1016,6 @@ Summarize the current portfolio health, total fees earned, and performance of al
   _pnlPollTimeout = setTimeout(_runPnlPoll, _pnlPollNextDelay());
 
   _cronTasks = [mgmtTask, screenTask, healthTask, briefingTask, briefingWatchdog];
-  // Store timeout ref so stopCronJobs can clear it
-  _cronTasks._pnlPollTimeout = _pnlPollTimeout;
   log("cron", `Cycles started — management every ${config.schedule.managementIntervalMin}m, screening every ${config.schedule.screeningIntervalMin}m`);
 }
 
