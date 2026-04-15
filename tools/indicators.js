@@ -98,6 +98,76 @@ export function isVolumeSpike(volumes, multiplier = 2.0) {
   return volumes[volumes.length - 1] > avgPrior * multiplier;
 }
 
+// ─── ATR(14) ───────────────────────────────────────────────────
+// Average True Range as % of entry price.
+// True Range = max(high-low, |high-prevClose|, |low-prevClose|)
+
+export function calcATRPct(candles, period = 14) {
+  if (!Array.isArray(candles) || candles.length < period + 1) return null;
+
+  const trs = [];
+  for (let i = 1; i < candles.length; i++) {
+    const { high, low } = candles[i];
+    const prevClose = candles[i - 1].close;
+    if (!isFinite(high) || !isFinite(low) || !isFinite(prevClose)) continue;
+    trs.push(Math.max(high - low, Math.abs(high - prevClose), Math.abs(low - prevClose)));
+  }
+  if (trs.length < period) return null;
+
+  // Wilder's smoothed ATR
+  let atr = trs.slice(0, period).reduce((s, v) => s + v, 0) / period;
+  for (let i = period; i < trs.length; i++) {
+    atr = (atr * (period - 1) + trs[i]) / period;
+  }
+
+  const entryPrice = candles[candles.length - 1].close;
+  if (!entryPrice || entryPrice <= 0) return null;
+  return Math.round((atr / entryPrice) * 100 * 100) / 100;  // as % of price, 2 decimals
+}
+
+// ─── EMA ───────────────────────────────────────────────────────
+
+export function calcEMA(closes, period) {
+  if (!Array.isArray(closes) || closes.length < period) return null;
+  const k = 2 / (period + 1);
+  let ema = closes.slice(0, period).reduce((s, v) => s + v, 0) / period;
+  for (let i = period; i < closes.length; i++) {
+    ema = closes[i] * k + ema * (1 - k);
+  }
+  return ema;
+}
+
+/**
+ * EMA trend direction from 9/21 crossover.
+ * @returns "uptrend" | "downtrend" | "sideways"
+ */
+export function calcEMATrend(closes) {
+  if (!Array.isArray(closes) || closes.length < 22) return null;
+  const ema9  = calcEMA(closes, 9);
+  const ema21 = calcEMA(closes, 21);
+  if (ema9 == null || ema21 == null) return null;
+
+  const diff = (ema9 - ema21) / ema21;   // relative gap
+  if (diff > 0.003)  return "uptrend";   // EMA9 > EMA21 by >0.3%
+  if (diff < -0.003) return "downtrend"; // EMA9 < EMA21 by >0.3%
+  return "sideways";
+}
+
+// ─── Consecutive Bearish Candles ───────────────────────────────
+// Count how many red candles appear before (and including) the entry candle.
+
+export function calcConsecutiveRed(candles) {
+  if (!Array.isArray(candles) || candles.length === 0) return null;
+  let count = 0;
+  for (let i = candles.length - 1; i >= 0; i--) {
+    const { open, close } = candles[i];
+    if (!isFinite(open) || !isFinite(close)) break;
+    if (close < open) count++;
+    else break;
+  }
+  return count;
+}
+
 // ─── Composite: all indicators at a single point in time ───────
 
 /**
@@ -121,14 +191,20 @@ export function computeIndicators(candles) {
   const vwapVsPricePct = (vwap && entryCandle?.close)
     ? Math.round(((entryCandle.close - vwap) / vwap) * 100 * 10) / 10
     : null;
-  const volSpike = isVolumeSpike(volumes);
+  const volSpike      = isVolumeSpike(volumes);
+  const atrPct        = calcATRPct(candles);
+  const emaTrend      = calcEMATrend(closes);
+  const consecutiveRed = calcConsecutiveRed(candles);
 
   const result = {};
-  if (rsi   != null) result.rsi_14            = rsi;
-  if (bbPos != null) result.bb_position       = bbPos;
-  if (bb?.width_pct != null) result.bb_width_pct = bb.width_pct;
-  if (vwapVsPricePct != null) result.vwap_vs_price_pct = vwapVsPricePct;
-  if (volSpike != null) result.volume_spike   = volSpike;
+  if (rsi             != null) result.rsi_14             = rsi;
+  if (bbPos           != null) result.bb_position        = bbPos;
+  if (bb?.width_pct   != null) result.bb_width_pct       = bb.width_pct;
+  if (vwapVsPricePct  != null) result.vwap_vs_price_pct  = vwapVsPricePct;
+  if (volSpike        != null) result.volume_spike        = volSpike;
+  if (atrPct          != null) result.atr_14_pct          = atrPct;
+  if (emaTrend        != null) result.ema_trend           = emaTrend;
+  if (consecutiveRed  != null) result.consecutive_red     = consecutiveRed;
 
   return Object.keys(result).length > 0 ? result : null;
 }
