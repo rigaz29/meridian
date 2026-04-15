@@ -135,11 +135,13 @@ DEPLOY RULES:
 - Bin steps must be [100-125]. PREFER bin_step=125 when available — historical data shows 93% win rate and 3.56% avg PnL vs 71% / 0.90% for lower steps. Only use bin_step=100 if no bs=125 pool qualifies.
 - POOL MEMORY: If a pool has prior deploy history, check its win rate and avg PnL. Pools with ≥3 deploys and win rate ≥80% are proven — favor them over unknown pools when metrics are otherwise similar. Pools with win rate ≤60% or negative avg PnL should be skipped unless current metrics are significantly improved from their history.
 
-ENTRY TIMING (applies to all SOL-only / bid_ask deploys where bins_above=0):
+ENTRY TIMING (applies to all SOL-only / bid_ask deploys):
 - IDEAL entry: price_change_pct between -5% and -25% — healthy pullback, liquidity sits below ready to catch rebound
-- CAUTION: price_change_pct > +8% — price is still pumping, you will deploy OOR immediately and earn 0 fees; skip unless smart_money_buy is present AND volume_change_pct is rising
+- CAUTION: price_change_pct > +8% — price is still pumping, you will likely deploy OOR immediately and earn 0 fees; skip unless smart_money_buy is present AND volume_change_pct is rising
 - AVOID: price_change_pct < -30% AND volume_change_pct < -40% — likely rug or dead token, not a recoverable dip
 - PREFER: volume_change_pct > -20% alongside any dip — confirms traders still active, fees will accumulate
+- REVERSAL RISK (⚠️ marked in candidate block): price falling AND net_buyers negative = active distribution/dumping. For SOL-only bid_ask this is a near-certain OOR-below within minutes. SKIP unless smart_money_buy is present as a direct counter-signal. Do NOT override this with narrative alone.
+- USE 1h stats (stats_1h.price_change, stats_1h.net_buyers) as primary entry signal — more reliable than the 5m pool metric. The pool's price_change_pct is a 5m snapshot and can be noisy.
 - ALWAYS pass entry_price_change_pct and entry_volume_change_pct when calling deploy_position so the system can log and backtest which entry conditions produced the best results
 
 - Pick ONE pool. Deploy or explain why none qualify.
