@@ -509,10 +509,19 @@ export function updatePnlAndCheckExits(position_address, positionData, mgmtConfi
   // ── Trailing TP ────────────────────────────────────────────────
   if (!pnl_pct_suspicious && currentPnlPct != null && pos.trailing_active) {
     const dropFromPeak = pos.peak_pnl_pct - currentPnlPct;
-    if (dropFromPeak >= mgmtConfig.trailingDropPct) {
+    // Dynamic drop threshold: tighter at low peaks, wider at high peaks
+    const effectiveDropPct = (() => {
+      const base = mgmtConfig.trailingDropPct ?? 1.5;
+      const peak = pos.peak_pnl_pct;
+      if (peak == null) return base;
+      if (peak >= 10) return Math.max(base, 2.0);
+      if (peak >= 5)  return base;
+      return Math.min(base, 1.0);
+    })();
+    if (dropFromPeak >= effectiveDropPct) {
       return {
         action: "TRAILING_TP",
-        reason: `Trailing TP: peak ${pos.peak_pnl_pct.toFixed(2)}% → current ${currentPnlPct.toFixed(2)}% (dropped ${dropFromPeak.toFixed(2)}% >= ${mgmtConfig.trailingDropPct}%)`,
+        reason: `Trailing TP: peak ${pos.peak_pnl_pct.toFixed(2)}% → current ${currentPnlPct.toFixed(2)}% (dropped ${dropFromPeak.toFixed(2)}% >= ${effectiveDropPct}%)`,
         needs_confirmation: true,
         peak_pnl_pct: pos.peak_pnl_pct,
         current_pnl_pct: currentPnlPct,

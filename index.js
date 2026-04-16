@@ -56,6 +56,23 @@ async function autoSwapBaseToken(base_mint, context = "") {
 const TP_PCT = config.management.takeProfitFeePct;
 const DEPLOY = config.management.deployAmountSol;
 
+/**
+ * Dynamic trailing drop threshold based on confirmed peak PnL.
+ * Tighter at low peaks (lock in small gains quickly),
+ * wider at high peaks (give room for big pumps to continue).
+ *
+ * Peak 3–5%  → 1.0%  (quick lock-in, don't let small gain evaporate)
+ * Peak 5–10% → 1.5%  (standard, matches historical data)
+ * Peak >10%  → 2.0%  (let big winners run a bit longer)
+ */
+export function dynamicTrailingDropPct(peakPnlPct) {
+  const base = config.management.trailingDropPct ?? 1.5;
+  if (peakPnlPct == null) return base;
+  if (peakPnlPct >= 10) return Math.max(base, 2.0);
+  if (peakPnlPct >= 5)  return base;
+  return Math.min(base, 1.0);
+}
+
 // ═══════════════════════════════════════════
 //  CYCLE TIMERS
 // ═══════════════════════════════════════════
@@ -146,10 +163,11 @@ function scheduleTrailingDropConfirmation(positionAddress) {
     try {
       const result = await getMyPositions({ force: true, silent: true }).catch(() => null);
       const position = result?.positions?.find((p) => p.position === positionAddress);
+      const resolvedPeak = getTrackedPosition(positionAddress)?.peak_pnl_pct ?? null;
       const resolved = resolvePendingTrailingDrop(
         positionAddress,
         position?.pnl_pct ?? null,
-        config.management.trailingDropPct,
+        dynamicTrailingDropPct(resolvedPeak),
         TRAILING_DROP_CONFIRM_TOLERANCE_PCT,
       );
       if (resolved?.confirmed) {
@@ -338,7 +356,7 @@ export async function runManagementCycle({ silent = false } = {}) {
       const exit = updatePnlAndCheckExits(p.position, p, config.management);
       if (exit) {
         if (exit.action === "TRAILING_TP" && exit.needs_confirmation) {
-          if (queueTrailingDropConfirmation(p.position, exit.peak_pnl_pct, exit.current_pnl_pct, config.management.trailingDropPct)) {
+          if (queueTrailingDropConfirmation(p.position, exit.peak_pnl_pct, exit.current_pnl_pct, dynamicTrailingDropPct(exit.peak_pnl_pct))) {
             scheduleTrailingDropConfirmation(p.position);
           }
           continue;
@@ -1080,7 +1098,7 @@ Summarize the current portfolio health, total fees earned, and performance of al
         const exit = updatePnlAndCheckExits(p.position, p, config.management);
         if (exit) {
           if (exit.action === "TRAILING_TP" && exit.needs_confirmation) {
-            if (queueTrailingDropConfirmation(p.position, exit.peak_pnl_pct, exit.current_pnl_pct, config.management.trailingDropPct)) {
+            if (queueTrailingDropConfirmation(p.position, exit.peak_pnl_pct, exit.current_pnl_pct, dynamicTrailingDropPct(exit.peak_pnl_pct))) {
               scheduleTrailingDropConfirmation(p.position);
             }
             continue;

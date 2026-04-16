@@ -445,7 +445,7 @@ All fields are optional — defaults shown. Edit `user-config.json`.
 | `takeProfitFeePct` | `5` | Close when unclaimed fees reach X% of position value |
 | `trailingTakeProfit` | `true` | Enable trailing take-profit |
 | `trailingTriggerPct` | `3` | Activate trailing at X% PnL |
-| `trailingDropPct` | `1.5` | Close when PnL drops X% from confirmed peak |
+| `trailingDropPct` | `1.5` | Base drop threshold — actual threshold is dynamic based on peak: peak <5% → 1.0%, peak 5–10% → this value, peak >10% → max(this, 2.0%) |
 | `autoClaimPct` | `5` | Auto-claim when unclaimed fees ≥ X% of position value |
 | `autoSwapAfterClaim` | `false` | Swap base token to SOL after claiming |
 | `solMode` | `false` | Report positions and PnL in SOL instead of USD |
@@ -641,7 +641,7 @@ All stop losses respect `minAgeBeforeSL` (7 min) to avoid false triggers on fres
 
 | Layer | Trigger | Notes |
 |---|---|---|
-| **Trailing TP** | PnL activates at `trailingTriggerPct` (3%), closes when drops `trailingDropPct` (1.5%) from confirmed peak | Suppresses static TP once active |
+| **Trailing TP** | PnL activates at `trailingTriggerPct` (3%), closes when drops from confirmed peak | Drop threshold is dynamic: peak <5% → 1.0%, peak 5–10% → `trailingDropPct` (1.5%), peak >10% → 2.0%. Suppresses static TP once active. |
 | **Static TP** | `unclaimed fees ≥ takeProfitFeePct` (5%) of position value | Acts as ceiling before trailing activates |
 
 ### OOR exits
