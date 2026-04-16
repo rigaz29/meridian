@@ -142,12 +142,19 @@ export async function deployPosition({
   const activeStrategy = strategy || strategyRec?.strategy || config.strategy.strategy;
 
   const vol = (typeof volatility === "number" && volatility >= 0) ? volatility : 2.5;
-  const targetDownside = Math.min(0.50, 0.35 + (vol / 5) * 0.09);  // vol=0→35%, vol=2.5→39.5%, vol=5→44%, cap=50%
+  // spot/curve distributes liquidity on both sides → wider downside range keeps position in-range longer
+  // bid_ask is SOL-only below active bin → tighter range = denser liquidity per bin = higher fee yield
+  const isSpotLike = activeStrategy === "spot" || activeStrategy === "curve";
+  const targetDownside = isSpotLike
+    ? Math.min(0.55, 0.42 + (vol / 5) * 0.09)   // spot: vol=0→42%, vol=2.5→47%, vol=5→51%, cap=55%
+    : Math.min(0.50, 0.35 + (vol / 5) * 0.09);   // bid_ask: vol=0→35%, vol=2.5→39.5%, vol=5→44%, cap=50%
   const targetUpside   = Math.min(0.35, 0.15 + (vol / 5) * 0.15);  // vol=0→15%, vol=2.5→22.5%, vol=5→30%
 
   // Preliminary estimate using provided bin_step (used for DRY_RUN and wide-range check)
   const estBinStep = bin_step ?? 100;
-  const estMaxBinsBelow = estBinStep >= 125 ? 35 : estBinStep >= 100 ? 50 : 50;
+  const estMaxBinsBelow = isSpotLike
+    ? (estBinStep >= 125 ? 40 : 70)   // spot: wider cap — data shows >50 bins gives 95% range efficiency
+    : (estBinStep >= 125 ? 35 : 50);  // bid_ask: tight cap — dense liquidity below active bin
   const activeBinsBelow = bins_below != null
     ? Math.min(bins_below, estMaxBinsBelow)
     : Math.min(estMaxBinsBelow, calcBinsFromTarget(estBinStep, targetDownside));
@@ -194,9 +201,11 @@ export async function deployPosition({
   const activeBin = await pool.getActiveBin();
 
   // Recalculate bins using actual pool bin_step (unless explicitly provided by caller)
-  // targetDownside/targetUpside already computed above using volatility
+  // targetDownside already computed above using volatility + strategy
   const actualBinStep = pool.lbPair.binStep;
-  const maxBinsBelow = actualBinStep >= 125 ? 35 : actualBinStep >= 100 ? 50 : 50;
+  const maxBinsBelow = isSpotLike
+    ? (actualBinStep >= 125 ? 40 : 70)   // spot: wider cap
+    : (actualBinStep >= 125 ? 35 : 50);  // bid_ask: tight cap
   const finalBinsBelow = bins_below != null
     ? Math.min(bins_below, maxBinsBelow)
     : Math.min(maxBinsBelow, calcBinsFromTarget(actualBinStep, targetDownside));
