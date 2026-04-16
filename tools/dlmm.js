@@ -21,6 +21,8 @@ import {
 import { recordPerformance } from "../lessons.js";
 import { isBaseMintOnCooldown, isPoolOnCooldown, computeStrategyRecommendation } from "../pool-memory.js";
 import { normalizeMint } from "./wallet.js";
+import { findNearestSupport } from "./indicators.js";
+import { fetchOHLCV } from "../meteora-api.js";
 
 // ─── Lazy SDK loader ───────────────────────────────────────────
 // @meteora-ag/dlmm → @coral-xyz/anchor uses CJS directory imports
@@ -206,9 +208,44 @@ export async function deployPosition({
   const maxBinsBelow = isSpotLike
     ? (actualBinStep >= 125 ? 40 : 70)   // spot: wider cap
     : (actualBinStep >= 125 ? 35 : 50);  // bid_ask: tight cap
+  const formulaBinsBelow = Math.min(maxBinsBelow, calcBinsFromTarget(actualBinStep, targetDownside));
+
+  // ── Support-based bins (hybrid) ────────────────────────────────
+  // Fetch 50 × 1h candles, detect nearest swing-low support below current price,
+  // extend bins_below to cover it (+ 5% buffer). Take max(formula, support-based).
+  // Non-fatal: falls back to formula if fetch fails or no valid swing found.
+  let supportBinsBelow = null;
+  let supportLog = null;
+  if (bins_below == null) {  // only when not manually overridden
+    try {
+      const now = Math.floor(Date.now() / 1000);
+      const ohlcv = await fetchOHLCV(pool_address, {
+        startTime: now - 50 * 3600,
+        endTime:   now + 3600,
+        timeframe: "1h",
+      });
+      if (Array.isArray(ohlcv) && ohlcv.length >= 5) {
+        const support = findNearestSupport(ohlcv, 2);
+        if (support) {
+          const BUFFER = 0.05;  // 5% extra below support as safety margin
+          const targetPct = Math.min(support.distance_pct / 100 + BUFFER, 0.65);
+          supportBinsBelow = Math.min(maxBinsBelow, calcBinsFromTarget(actualBinStep, targetPct));
+          supportLog = `support at -${support.distance_pct}% (${support.swing_count} swings) → ${supportBinsBelow} bins`;
+        }
+      }
+    } catch (_) { /* non-fatal */ }
+  }
+
+  // Hybrid: take whichever is wider — formula covers volatility, support covers structure
   const finalBinsBelow = bins_below != null
     ? Math.min(bins_below, maxBinsBelow)
-    : Math.min(maxBinsBelow, calcBinsFromTarget(actualBinStep, targetDownside));
+    : (supportBinsBelow != null
+        ? Math.max(formulaBinsBelow, supportBinsBelow)
+        : formulaBinsBelow);
+
+  if (supportLog) {
+    log("deploy", `bins_below hybrid: formula=${formulaBinsBelow} | ${supportLog} | final=${finalBinsBelow}`);
+  }
   // recalculate with actual bin_step from pool (more accurate than estimate)
   const finalBinsAboveBuffer = config.strategy.dynamicBinsAbove
     ? calcBinsFromTarget(actualBinStep, 0.04 + (vol / 5) * 0.06, true)

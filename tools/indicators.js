@@ -168,6 +168,49 @@ export function calcConsecutiveRed(candles) {
   return count;
 }
 
+// ─── Nearest Support (Swing Low) ──────────────────────────────
+/**
+ * Find the nearest demand/support level below current price using swing lows.
+ * A swing low is a candle where low[i] < low[i-1] AND low[i] < low[i+1].
+ *
+ * @param {Array}  candles   - OHLCV candle array (chronological order)
+ * @param {number} minSwings - Minimum swing lows required to trust the result (default 2)
+ * @returns {{ price: number, distance_pct: number, swing_count: number } | null}
+ *   distance_pct: % distance from current price to support (positive number)
+ */
+export function findNearestSupport(candles, minSwings = 2) {
+  if (!Array.isArray(candles) || candles.length < 5) return null;
+
+  const currentPrice = candles[candles.length - 1].close;
+  if (!isFinite(currentPrice) || currentPrice <= 0) return null;
+
+  // Collect all swing lows in the candle window
+  const swingLows = [];
+  for (let i = 1; i < candles.length - 1; i++) {
+    const { low } = candles[i];
+    if (!isFinite(low)) continue;
+    if (low < candles[i - 1].low && low < candles[i + 1].low) {
+      swingLows.push(low);
+    }
+  }
+
+  if (swingLows.length < minSwings) return null;
+
+  // Only consider swing lows strictly below current price
+  const below = swingLows.filter(p => p < currentPrice);
+  if (!below.length) return null;
+
+  // Nearest support = highest swing low below current price
+  const supportPrice = Math.max(...below);
+  const distancePct  = (currentPrice - supportPrice) / currentPrice * 100;
+
+  return {
+    price:        Math.round(supportPrice * 1e8) / 1e8,
+    distance_pct: Math.round(distancePct * 10) / 10,   // e.g. 18.3 means 18.3% below
+    swing_count:  swingLows.length,
+  };
+}
+
 // ─── Composite: all indicators at a single point in time ───────
 
 /**
