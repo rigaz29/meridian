@@ -245,6 +245,16 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
             await new Promise((r) => setTimeout(r, waitMs));
             continue;
           }
+          // Network-level errors (ETIMEDOUT, ECONNRESET, fetch failure) — retry like transient errors
+          const isNetworkError =
+            error.code === "ETIMEDOUT" || error.code === "ECONNRESET" || error.code === "ECONNREFUSED" ||
+            /ETIMEDOUT|ECONNRESET|ECONNREFUSED|fetch failed|network.*error/i.test(error.message);
+          if (isNetworkError && attempt < 2) {
+            const wait = (attempt + 1) * 10_000;
+            log("agent", `Network error (${error.code || "fetch"}) — retrying in ${wait / 1000}s (attempt ${attempt + 1}/3)`);
+            await new Promise((r) => setTimeout(r, wait));
+            continue;
+          }
           throw error;
         }
         if (response.choices?.length) break;

@@ -148,9 +148,9 @@ export async function deployPosition({
   // bid_ask (SOL-only) uses a slightly lower base target than spot, but the same cap.
   const isSpotLike = activeStrategy === "spot" || activeStrategy === "curve";
   const targetDownside = isSpotLike
-    ? Math.min(0.55, 0.42 + (vol / 5) * 0.09)   // spot:    vol=0→42%, vol=2.5→47%, vol=5→51%, cap=55%
-    : Math.min(0.55, 0.38 + (vol / 5) * 0.09);   // bid_ask: vol=0→38%, vol=2.5→42.5%, vol=5→47%, cap=55%
-  const targetUpside   = Math.min(0.35, 0.15 + (vol / 5) * 0.15);  // vol=0→15%, vol=2.5→22.5%, vol=5→30%
+    ? Math.min(0.55, 0.42 + (vol / 7) * 0.09)   // spot:    vol=0→42%, vol=3.5→46.5%, vol=7→51%, cap=55%
+    : Math.min(0.55, 0.38 + (vol / 7) * 0.09);   // bid_ask: vol=0→38%, vol=3.5→42.5%, vol=7→47%, cap=55%
+  const targetUpside   = Math.min(0.35, 0.15 + (vol / 7) * 0.15);  // vol=0→15%, vol=3.5→22.5%, vol=7→30%
 
   // Preliminary estimate using provided bin_step (used for DRY_RUN and wide-range check)
   const estBinStep = bin_step ?? 100;
@@ -161,10 +161,10 @@ export async function deployPosition({
     ? Math.min(bins_below, estMaxBinsBelow)
     : Math.min(estMaxBinsBelow, calcBinsFromTarget(estBinStep, targetDownside));
   const isSolOnly = !amount_x || amount_x <= 0;
-  // dynamic buffer: targetUpside = 0.04 + (vol/5)*0.06 → vol=0→4%, vol=2.5→7%, vol=5→10%
-  // at vol=5, bs=80: calcBinsFromTarget(80, 0.10) = 12 (natural max, no cap needed)
+  // dynamic buffer: targetUpside = 0.04 + (vol/7)*0.06 → vol=0→4%, vol=3.5→7%, vol=7→10%
+  // at vol=7, bs=80: calcBinsFromTarget(80, 0.10) = 12 (natural max, no cap needed)
   const binsAboveBuffer = config.strategy.dynamicBinsAbove
-    ? calcBinsFromTarget(estBinStep, 0.04 + (vol / 5) * 0.06, true)
+    ? calcBinsFromTarget(estBinStep, 0.04 + (vol / 7) * 0.06, true)
     : 0;
   const activeBinsAbove = (activeStrategy === "bid_ask" || isSolOnly)
     ? binsAboveBuffer  // empty buffer bins — no liquidity, but extends upper bound to delay OOR above trigger
@@ -259,7 +259,7 @@ export async function deployPosition({
   }
   // recalculate with actual bin_step from pool (more accurate than estimate)
   const finalBinsAboveBuffer = config.strategy.dynamicBinsAbove
-    ? calcBinsFromTarget(actualBinStep, 0.04 + (vol / 5) * 0.06, true)
+    ? calcBinsFromTarget(actualBinStep, 0.04 + (vol / 7) * 0.06, true)
     : 0;
   const finalBinsAbove = (activeStrategy === "bid_ask" || (amount_x ?? 0) <= 0)
     ? finalBinsAboveBuffer  // empty buffer bins — extends upper bound without requiring token X

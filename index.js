@@ -62,15 +62,22 @@ const DEPLOY = config.management.deployAmountSol;
  * wider at high peaks (give room for big pumps to continue).
  *
  * Peak 3–5%  → 1.0%  (quick lock-in, don't let small gain evaporate)
- * Peak 5–10% → 1.5%  (standard, matches historical data)
- * Peak >10%  → 2.0%  (let big winners run a bit longer)
+ * Peak 5–10% → base  (standard)
+ * Peak >10%  → max(base, 2.0)  (let big winners run longer)
+ *
+ * Volatility scaling (applied to all thresholds above):
+ * vol=0 → 1.0× (no change), vol=3.5 → 1.25×, vol=7 → 1.5×
+ * High-vol tokens have wilder PnL swings — need wider drop tolerance to avoid premature exits.
  */
-export function dynamicTrailingDropPct(peakPnlPct) {
-  const base = config.management.trailingDropPct ?? 1.5;
-  if (peakPnlPct == null) return base;
-  if (peakPnlPct >= 10) return Math.max(base, 2.0);
-  if (peakPnlPct >= 5)  return base;
-  return Math.min(base, 1.0);
+export function dynamicTrailingDropPct(peakPnlPct, volatility) {
+  const cfgBase = config.management.trailingDropPct ?? 1.5;
+  const vol = typeof volatility === "number" && volatility >= 0 ? volatility : 0;
+  const volScale = 1 + (vol / 7) * 0.5;  // vol=0→1.0×, vol=3.5→1.25×, vol=7→1.5×
+  const base = cfgBase * volScale;
+  if (peakPnlPct == null) return parseFloat(base.toFixed(2));
+  if (peakPnlPct >= 10) return parseFloat(Math.max(base, 2.0 * volScale).toFixed(2));
+  if (peakPnlPct >= 5)  return parseFloat(base.toFixed(2));
+  return parseFloat(Math.min(base, 1.0 * volScale).toFixed(2));
 }
 
 // ═══════════════════════════════════════════
@@ -163,11 +170,12 @@ function scheduleTrailingDropConfirmation(positionAddress) {
     try {
       const result = await getMyPositions({ force: true, silent: true }).catch(() => null);
       const position = result?.positions?.find((p) => p.position === positionAddress);
-      const resolvedPeak = getTrackedPosition(positionAddress)?.peak_pnl_pct ?? null;
+      const resolvedTracked = getTrackedPosition(positionAddress);
+      const resolvedPeak = resolvedTracked?.peak_pnl_pct ?? null;
       const resolved = resolvePendingTrailingDrop(
         positionAddress,
         position?.pnl_pct ?? null,
-        dynamicTrailingDropPct(resolvedPeak),
+        dynamicTrailingDropPct(resolvedPeak, resolvedTracked?.volatility),
         TRAILING_DROP_CONFIRM_TOLERANCE_PCT,
       );
       if (resolved?.confirmed) {
@@ -356,7 +364,7 @@ export async function runManagementCycle({ silent = false } = {}) {
       const exit = updatePnlAndCheckExits(p.position, p, config.management);
       if (exit) {
         if (exit.action === "TRAILING_TP" && exit.needs_confirmation) {
-          if (queueTrailingDropConfirmation(p.position, exit.peak_pnl_pct, exit.current_pnl_pct, dynamicTrailingDropPct(exit.peak_pnl_pct))) {
+          if (queueTrailingDropConfirmation(p.position, exit.peak_pnl_pct, exit.current_pnl_pct, dynamicTrailingDropPct(exit.peak_pnl_pct, getTrackedPosition(p.position)?.volatility))) {
             scheduleTrailingDropConfirmation(p.position);
           }
           continue;
@@ -1098,7 +1106,7 @@ Summarize the current portfolio health, total fees earned, and performance of al
         const exit = updatePnlAndCheckExits(p.position, p, config.management);
         if (exit) {
           if (exit.action === "TRAILING_TP" && exit.needs_confirmation) {
-            if (queueTrailingDropConfirmation(p.position, exit.peak_pnl_pct, exit.current_pnl_pct, dynamicTrailingDropPct(exit.peak_pnl_pct))) {
+            if (queueTrailingDropConfirmation(p.position, exit.peak_pnl_pct, exit.current_pnl_pct, dynamicTrailingDropPct(exit.peak_pnl_pct, getTrackedPosition(p.position)?.volatility))) {
               scheduleTrailingDropConfirmation(p.position);
             }
             continue;
