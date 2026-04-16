@@ -203,9 +203,7 @@ function toolLabel(name) {
     get_my_positions:          "Positions",
     get_wallet_balance:        "Wallet balance",
     check_smart_wallets_on_pool: "Smart wallets",
-    study_top_lpers:           "Study top LPers",
-    get_top_lpers:             "Top LPers",
-    search_pools:              "Search pools",
+search_pools:              "Search pools",
     discover_pools:            "Discover pools",
     check_pool_eligibility:    "Pool eligibility check",
     get_position_pnl:          "Position PnL",
@@ -235,10 +233,7 @@ function summarizeToolResult(name, result) {
       return `${result.total_positions ?? result.positions?.length ?? 0} positions`;
     case "get_wallet_balance":
       return `${result.sol ?? "?"} SOL`;
-    case "study_top_lpers":
-    case "get_top_lpers":
-      return `${result.lpers?.length ?? 0} LPers`;
-    case "check_pool_eligibility":
+case "check_pool_eligibility":
       return result.eligible ? "eligible ✓" : `rejected — ${result.fail_reason ?? "criteria not met"}`;
     default:
       return result.success === false ? "failed" : "done";

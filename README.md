@@ -10,7 +10,7 @@ Meridian runs continuous screening and management cycles, deploying capital into
 
 - **Screens pools** — scans Meteora DLMM pools against configurable thresholds (fee/TVL ratio, organic score, holder count, mcap, bin step) and surfaces high-quality opportunities
 - **Manages positions** — monitors, claims fees, and closes LP positions autonomously; decides to STAY, CLOSE, or REDEPLOY based on live data
-- **Learns from performance** — studies top LPers in target pools, saves structured lessons from every closed position
+- **Learns from performance** — saves structured lessons from every closed position and injects them into subsequent agent cycles
 - **Darwinian signal weighting** — tracks which screening signals actually predict profitable positions and boosts/decays their weight automatically over time
 - **Discord signals** — optional Discord listener watches LP Army channels for Solana token calls and queues them for screening
 - **Telegram chat** — full agent chat via Telegram, plus cycle reports and OOR alerts
@@ -129,8 +129,6 @@ REPL commands:
 | `go` | Start cron without deploying |
 | `/status` | Wallet balance and open positions |
 | `/candidates` | Re-screen and display top pool candidates |
-| `/learn` | Study top LPers across all current candidate pools |
-| `/learn <pool_address>` | Study top LPers for a specific pool |
 | `/thresholds` | Current screening thresholds and performance stats |
 | `/briefing` | Show last 24h briefing |
 | `/bootstrap` | Import last 10 closed positions from Meteora API and learn from them |
@@ -157,7 +155,6 @@ claude
 | `/balance` | Check wallet SOL and token balances |
 | `/positions` | List all open DLMM positions with range status |
 | `/candidates` | Fetch and enrich top pool candidates (pool metrics + token audit + smart money) |
-| `/study-pool` | Study top LPers on a specific pool |
 | `/pool-ohlcv` | Fetch price/volume history for a pool |
 | `/pool-compare` | Compare all Meteora DLMM pools for a token pair by APR, fee/TVL ratio, and volume |
 
@@ -217,7 +214,6 @@ meridian candidates --limit 5
 meridian pool-detail --pool <addr> [--timeframe 5m]
 meridian active-bin --pool <addr>
 meridian search-pools --query <name_or_symbol>
-meridian study --pool <addr> [--limit 4]
 ```
 
 **Token research**
@@ -915,7 +911,6 @@ tools/
   screening.js        Pool discovery + scoring
   wallet.js           SOL/token balances + Jupiter swap
   token.js            Token info, holders, bundler detection
-  study.js            Top LPer study via LPAgent API
   indicators.js       Pure technical indicator calculations (RSI, BB, VWAP, ATR, EMA, volume spike)
 
 scripts/
@@ -935,7 +930,6 @@ discord-listener/
     balance.md        /balance slash command
     positions.md      /positions slash command
     candidates.md     /candidates slash command
-    study-pool.md     /study-pool slash command
     pool-ohlcv.md     /pool-ohlcv slash command
     pool-compare.md   /pool-compare slash command
 ```

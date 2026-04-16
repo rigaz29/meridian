@@ -1418,8 +1418,6 @@ Commands:
   /status        Refresh wallet + positions
   /candidates    Refresh top pool list
   /briefing      Show morning briefing (last 24h)
-  /learn         Study top LPers from the best current pool and save lessons
-  /learn <addr>  Study top LPers from a specific pool address
   /thresholds    Show current screening thresholds + performance stats
 /bootstrap     Import last 10 closed positions from Meteora API and learn from them
   /stop          Shut down
@@ -1531,55 +1529,6 @@ Commands:
       }
       console.log();
       rl.prompt();
-      return;
-    }
-
-    if (input.startsWith("/learn")) {
-      await runBusy(async () => {
-        const parts = input.split(" ");
-        const poolArg = parts[1] || null;
-
-        let poolsToStudy = [];
-
-        if (poolArg) {
-          poolsToStudy = [{ pool: poolArg, name: poolArg }];
-        } else {
-          // Fetch top 10 candidates across all eligible pools
-          console.log("\nFetching top pool candidates to study...\n");
-          const { candidates } = await getTopCandidates({ limit: 10 });
-          if (!candidates.length) {
-            console.log("No eligible pools found to study.\n");
-            return;
-          }
-          poolsToStudy = candidates.map((c) => ({ pool: c.pool, name: c.name }));
-        }
-
-        console.log(`\nStudying top LPers across ${poolsToStudy.length} pools...\n`);
-        for (const p of poolsToStudy) console.log(`  • ${p.name || p.pool}`);
-        console.log();
-
-        const poolList = poolsToStudy
-          .map((p, i) => `${i + 1}. ${p.name} (${p.pool})`)
-          .join("\n");
-
-        const { content: reply } = await agentLoop(
-          `Study top LPers across these ${poolsToStudy.length} pools by calling study_top_lpers for each:
-
-${poolList}
-
-For each pool, call study_top_lpers then move to the next. After studying all pools:
-1. Identify patterns that appear across multiple pools (hold time, scalping vs holding, win rates).
-2. Note pool-specific patterns where behaviour differs significantly.
-3. Derive 4-8 concrete, actionable lessons using add_lesson. Prioritize cross-pool patterns — they're more reliable.
-4. Summarize what you learned.
-
-Focus on: hold duration, entry/exit timing, what win rates look like, whether scalpers or holders dominate.`,
-          config.llm.maxSteps,
-          [],
-          "GENERAL"
-        );
-        console.log(`\n${reply}\n`);
-      });
       return;
     }
 

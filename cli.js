@@ -98,12 +98,6 @@ Returns top pool candidates fully enriched: pool metrics, token audit, holders, 
 Output: { candidates: [{name, pool, bin_step, fee_pct, volume, tvl, organic_score, active_bin, smart_wallets, token: {holders, audit, global_fees_sol, ...}, holders, narrative, pool_memory}] }
 \`\`\`
 
-### meridian study --pool <addr> [--limit 4]
-Studies top LPers on a pool. Returns behaviour patterns, hold times, win rates, strategies.
-\`\`\`
-Output: { pool, patterns: {top_lper_count, avg_hold_hours, avg_win_rate, ...}, lpers: [{owner, summary, positions}] }
-\`\`\`
-
 ### meridian token-info --query <mint_or_symbol>
 Returns token audit, mcap, launchpad, price stats, fee data.
 \`\`\`
@@ -504,15 +498,6 @@ switch (subcommand) {
     } else {
       die(`Unknown config subcommand: ${sub2}. Use: get, set`);
     }
-    break;
-  }
-
-  // ── study ────────────────────────────────────────────────────────
-  case "study": {
-    if (!flags.pool) die("Usage: meridian study --pool <addr> [--limit 4]");
-    const { studyTopLPers } = await import("./tools/study.js");
-    const limit = flags.limit ? parseInt(flags.limit) : 4;
-    out(await studyTopLPers({ pool_address: flags.pool, limit }));
     break;
   }
 

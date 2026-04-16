@@ -29,7 +29,6 @@ tools/
   screening.js      Pool discovery from Meteora API
   wallet.js         SOL/token balances (Helius) + Jupiter swap
   token.js          Token info/holders/narrative (Jupiter API)
-  study.js          Top LPer study via LPAgent API
 ```
 
 ---

@@ -10,7 +10,6 @@ import {
   searchPools,
 } from "./dlmm.js";
 import { getWalletBalances, swapToken } from "./wallet.js";
-import { studyTopLPers } from "./study.js";
 import { addLesson, clearAllLessons, clearPerformance, removeLessonsByKeyword, getPerformanceHistory, pinLesson, unpinLesson, listLessons, bootstrapFromHistory } from "../lessons.js";
 import { setPositionInstruction, getTrackedPosition } from "../state.js";
 
@@ -60,9 +59,7 @@ const toolMap = {
   close_position: closePosition,
   get_wallet_balance: getWalletBalances,
   swap_token: swapToken,
-  get_top_lpers: studyTopLPers,
-  study_top_lpers: studyTopLPers,
-  set_position_note: ({ position_address, instruction }) => {
+set_position_note: ({ position_address, instruction }) => {
     const ok = setPositionInstruction(position_address, instruction || null);
     if (!ok) return { error: `Position ${position_address} not found in state` };
     return { saved: true, position: position_address, instruction: instruction || null };

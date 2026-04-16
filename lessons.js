@@ -223,32 +223,12 @@ export async function bootstrapFromHistory(walletAddress, { limit = 25, force = 
     return { imported: 0, skipped: 0, lessons_generated: 0 };
   }
 
-  // ── LPAgent enrichment — fills range_efficiency, strategy, close_reason ──
-  const lpAgentMap = {};
-  try {
-    const { fetchLPAgentHistoricalForWallet } = await import("./tools/study.js");
-    const lpData = await fetchLPAgentHistoricalForWallet(walletAddress, { limit: Math.max(limit * 2, 50) });
-    if (lpData && lpData.length > 0) {
-      for (const p of lpData) { if (p.position) lpAgentMap[p.position] = p; }
-      log("bootstrap", `LPAgent: fetched ${lpData.length} positions, matched ${Object.keys(lpAgentMap).length}`);
-    }
-  } catch (err) {
-    log("bootstrap_warn", `LPAgent enrichment skipped: ${err.message}`);
-  }
-
   const data = load();
   const existing = new Set(data.performance.map((p) => p.position).filter(Boolean));
   let imported = 0, skipped = 0, lessonsGenerated = 0;
 
   for (const pos of enrichedPositions) {
     if (!force && pos.position && existing.has(pos.position)) { skipped++; continue; }
-
-    const lp = lpAgentMap[pos.position] || {};
-    const ageHour = lp.ageHour ?? null;
-    const inRangePct = lp.inRangePct ?? null;
-    const minutesHeld = ageHour != null ? Math.round(ageHour * 60) : null;
-    const rangeEff = inRangePct != null ? Math.round(inRangePct * 100 * 10) / 10 : null;
-    const minutesInRange = (minutesHeld != null && inRangePct != null) ? Math.round(minutesHeld * inRangePct) : null;
 
     const entry = {
       position: pos.position, pool: pos.pool,
@@ -258,10 +238,10 @@ export async function bootstrapFromHistory(walletAddress, { limit = 25, force = 
       pnl_usd: pos.pnl_usd ?? null, pnl_pct: pos.pnl_pct ?? null,
       initial_value_usd: pos.total_deposits?.amount_usd ?? null,
       final_value_usd: pos.total_withdraws?.amount_usd ?? null,
-      fees_earned_usd: pos.total_claimed_fees?.amount_usd ?? lp.collectedFee ?? 0,
+      fees_earned_usd: pos.total_claimed_fees?.amount_usd ?? 0,
       duration_hours: pos.created_at && pos.closed_at
         ? Math.round(((pos.closed_at - pos.created_at) / 3600) * 10) / 10
-        : (ageHour != null ? Math.round(ageHour * 10) / 10 : null),
+        : null,
       price_at_entry: pos.price_at_entry ?? null, price_at_exit: pos.price_at_exit ?? null,
       price_change_pct: pos.price_change_pct ?? null, price_range_pct: pos.price_range_pct ?? null,
       price_max_drawdown_pct: pos.price_max_drawdown_pct ?? null,
@@ -272,10 +252,10 @@ export async function bootstrapFromHistory(walletAddress, { limit = 25, force = 
       event_count_deposits: pos.event_count_deposits ?? null,
       event_count_withdraws: pos.event_count_withdraws ?? null,
       event_count_claims: pos.event_count_claims ?? null,
-      strategy: lp.strategy || null,
+      strategy: null,
       volatility: null, fee_tvl_ratio: null, organic_score: null, amount_sol: null,
-      minutes_in_range: minutesInRange, minutes_held: minutesHeld, range_efficiency: rangeEff,
-      close_reason: lp.closeReason || "historical_import",
+      minutes_in_range: null, minutes_held: null, range_efficiency: null,
+      close_reason: "historical_import",
       _source: "bootstrap_meteora_api", recorded_at: new Date().toISOString(), _enriched_at: pos._enriched_at,
     };
 

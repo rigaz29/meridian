@@ -607,61 +607,6 @@ Returns pool address, name, bin_step, fee %, TVL, volume, and token mints.`,
   {
     type: "function",
     function: {
-      name: "get_top_lpers",
-      description: `Get the top LPers for a pool by address — quick read-only lookup.
-Use this when the user asks "who are the top LPers in this pool?" or wants to
-know how others are performing in a specific pool without saving lessons.
-
-Returns: aggregate patterns (avg hold time, win rate, ROI) and per-LPer summaries.
-Requires LPAGENT_API_KEY to be set.`,
-      parameters: {
-        type: "object",
-        properties: {
-          pool_address: {
-            type: "string",
-            description: "The pool address to look up top LPers for"
-          },
-          limit: {
-            type: "number",
-            description: "Number of top LPers to return. Default 5."
-          }
-        },
-        required: ["pool_address"]
-      }
-    }
-  },
-
-  {
-    type: "function",
-    function: {
-      name: "study_top_lpers",
-      description: `Fetch and analyze top LPers for a pool to learn from their behaviour.
-Returns aggregate patterns (avg hold time, win rate, ROI) and historical samples.
-
-Use this before deploying into a new pool to:
-- See if top performers are scalpers (< 1h holds) or long-term holders.
-- Match your strategy and range to what is actually working for others.
-- Avoid pools where even the best performers have low win rates.`,
-      parameters: {
-        type: "object",
-        properties: {
-          pool_address: {
-            type: "string",
-            description: "Pool address to study top LPers for"
-          },
-          limit: {
-            type: "number",
-            description: "Number of top LPers to study. Default 4."
-          }
-        },
-        required: ["pool_address"]
-      }
-    }
-  },
-
-  {
-    type: "function",
-    function: {
       name: "clear_lessons",
       description: `Remove lessons from memory. Use when the user asks to erase lessons, or when lessons contain bad data (e.g. bug-caused -100% PnL records).
 
