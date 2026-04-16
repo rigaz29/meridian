@@ -445,7 +445,7 @@ All fields are optional — defaults shown. Edit `user-config.json`.
 | `mintCooldownHours` | `24` | Token cooldown duration (hours) when the same token hits SL ≥ `oorCooldownTriggerCount` times within 48h — blocks all pools for that token |
 | `stopLossPct` | `-20` | Close if PnL drops below this % (with 15s confirmation to filter data glitches) |
 | `velocitySLEnabled` | `true` | Enable or disable velocity stop-loss entirely |
-| `pnlVelocitySLPct` | `5` | Close if PnL drops X% within the velocity window — catches freefalls before hitting `stopLossPct` |
+| `pnlVelocitySLPct` | `3` | Close if PnL drops X% within the velocity window — catches freefalls before hitting `stopLossPct` |
 | `pnlVelocityWindowSec` | `90` | Rolling window in seconds for velocity SL measurement |
 | `minAgeBeforeSL` | `7` | Minutes before any stop loss can trigger |
 | `takeProfitFeePct` | `5` | Close when unclaimed fees reach X% of position value |
@@ -475,20 +475,61 @@ All fields are optional — defaults shown. Edit `user-config.json`.
 
 #### Bins below — dynamic formula
 
-When `binsBelow` is not set, the number of bins below the active bin is auto-calculated from pool volatility:
+When `binsBelow` is not set, the number of bins below the active bin is auto-calculated from pool volatility and the active strategy (`spot`/`curve` vs `bid_ask`):
 
+Both strategies share the same cap (safety over density) — bid_ask uses a slightly lower base target but can extend just as wide:
+
+**bid_ask**:
 ```
-targetDownside = min(0.50, 0.35 + (vol / 5) × 0.09)
+targetDownside = min(0.55, 0.38 + (vol / 5) × 0.09)
 bins_below     = min(cap, calcBinsFromTarget(binStep, targetDownside))
 ```
 
 | Volatility | Target downside | bs=80 bins | bs=100 bins | bs=125 bins |
 |---|---|---|---|---|
-| 0 | 35% | 50 (cap) | 44 | 31 |
-| 2.5 | 39.5% | 50 (cap) | 48 | 34 |
-| 5 | 44% | 50 (cap) | 50 (cap) | 35 (cap) |
+| 0 | 38% | 52 | 49 | 34 |
+| 2.5 | 42.5% | 59 | 56 | 38 |
+| 5 | 47% | 67 | 64 | 41 (cap) |
 
-Caps: `bin_step ≥ 125` → 35 bins, `bin_step ≥ 100` → 50 bins, `bin_step < 100` → 50 bins. The base of 0.35 (up from 0.32 in earlier versions) adds ~3% extra downside coverage at all volatility levels to reduce downside OOR events.
+**spot / curve** (slightly wider — data shows 95.2% range efficiency at >50 bins vs 80.6% at 46–50):
+```
+targetDownside = min(0.55, 0.42 + (vol / 5) × 0.09)
+bins_below     = min(cap, calcBinsFromTarget(binStep, targetDownside))
+```
+
+| Volatility | Target downside | bs=80 bins | bs=100 bins | bs=125 bins |
+|---|---|---|---|---|
+| 0 | 42% | 58 | 55 | 37 |
+| 2.5 | 46.5% | 67 | 63 | 40 |
+| 5 | 51% | 70 (cap) | 69 | 42 (cap) |
+
+Caps (both strategies): `bs ≥ 125` → 42, `bs < 125` → 70.
+
+#### Support-based bins (hybrid)
+
+In addition to the volatility formula, Meridian attempts to detect the nearest demand/support level below the current price using swing lows from OHLCV data, then takes the wider of the two estimates:
+
+```
+finalBinsBelow = max(formulaBinsBelow, supportBinsBelow)
+```
+
+Support detection uses a **cascade** of timeframes to handle both mature and new tokens:
+
+| Timeframe | Candles | Min amplitude | Min swings | Notes |
+|---|---|---|---|---|
+| `1h` | 50 | 0% | 2 | Tried first — clearest structural levels |
+| `15m` | 60 | 1.5% | 2 | Fallback — amplitude filter avoids micro-noise |
+| `5m` | 60 | 3.0% | 3 | Last resort for new tokens — stricter quality gates |
+
+Once a valid support is found on any timeframe, the cascade stops. Support distance + a 5% buffer sets the target:
+
+```
+targetPct      = min(support.distance_pct / 100 + 0.05, 0.65)
+supportBins    = min(maxBinsBelow, calcBinsFromTarget(binStep, targetPct))
+finalBinsBelow = max(formulaBinsBelow, supportBins)
+```
+
+This means bins_below is **never narrower than the formula** — support only extends it when structural price history suggests the floor is deeper than volatility alone implies. If OHLCV fetch fails or no swing lows are found, the formula result is used unchanged.
 
 #### lpStrategyMode
 
@@ -597,7 +638,7 @@ Meridian uses multiple layers of protection running in parallel. A lightweight P
 
 | Layer | Trigger | Confirmation | Mechanism |
 |---|---|---|---|
-| **Velocity SL** | PnL drops ≥ `pnlVelocitySLPct` (5%) within `pnlVelocityWindowSec` (90s) | None — direct close | In-memory history in 10–12s poller; catches freefalls before hitting absolute SL |
+| **Velocity SL** | PnL drops ≥ `pnlVelocitySLPct` (3%) within `pnlVelocityWindowSec` (90s) | None — direct close | In-memory history in 10–12s poller; catches freefalls before hitting absolute SL |
 | **PnL SL** | `pnl_pct ≤ stopLossPct` (-20%) | 15s recheck — cancels if PnL recovers | Catches slow bleed that velocity SL misses |
 
 All stop losses respect `minAgeBeforeSL` (7 min) to avoid false triggers on fresh positions where PnL data may be unstable.

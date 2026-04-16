@@ -144,19 +144,19 @@ export async function deployPosition({
   const activeStrategy = strategy || strategyRec?.strategy || config.strategy.strategy;
 
   const vol = (typeof volatility === "number" && volatility >= 0) ? volatility : 2.5;
-  // spot/curve distributes liquidity on both sides → wider downside range keeps position in-range longer
-  // bid_ask is SOL-only below active bin → tighter range = denser liquidity per bin = higher fee yield
+  // Both strategies prioritise staying in range on the downside so price can bounce from demand zones.
+  // bid_ask (SOL-only) uses a slightly lower base target than spot, but the same cap.
   const isSpotLike = activeStrategy === "spot" || activeStrategy === "curve";
   const targetDownside = isSpotLike
-    ? Math.min(0.55, 0.42 + (vol / 5) * 0.09)   // spot: vol=0→42%, vol=2.5→47%, vol=5→51%, cap=55%
-    : Math.min(0.50, 0.35 + (vol / 5) * 0.09);   // bid_ask: vol=0→35%, vol=2.5→39.5%, vol=5→44%, cap=50%
+    ? Math.min(0.55, 0.42 + (vol / 5) * 0.09)   // spot:    vol=0→42%, vol=2.5→47%, vol=5→51%, cap=55%
+    : Math.min(0.55, 0.38 + (vol / 5) * 0.09);   // bid_ask: vol=0→38%, vol=2.5→42.5%, vol=5→47%, cap=55%
   const targetUpside   = Math.min(0.35, 0.15 + (vol / 5) * 0.15);  // vol=0→15%, vol=2.5→22.5%, vol=5→30%
 
   // Preliminary estimate using provided bin_step (used for DRY_RUN and wide-range check)
   const estBinStep = bin_step ?? 100;
   const estMaxBinsBelow = isSpotLike
-    ? (estBinStep >= 125 ? 40 : 70)   // spot: wider cap — data shows >50 bins gives 95% range efficiency
-    : (estBinStep >= 125 ? 35 : 50);  // bid_ask: tight cap — dense liquidity below active bin
+    ? (estBinStep >= 125 ? 42 : 70)   // spot: wider cap — >50 bins gives 95% range efficiency
+    : (estBinStep >= 125 ? 42 : 70);  // bid_ask: same cap as spot — safety over density
   const activeBinsBelow = bins_below != null
     ? Math.min(bins_below, estMaxBinsBelow)
     : Math.min(estMaxBinsBelow, calcBinsFromTarget(estBinStep, targetDownside));
@@ -206,8 +206,8 @@ export async function deployPosition({
   // targetDownside already computed above using volatility + strategy
   const actualBinStep = pool.lbPair.binStep;
   const maxBinsBelow = isSpotLike
-    ? (actualBinStep >= 125 ? 40 : 70)   // spot: wider cap
-    : (actualBinStep >= 125 ? 35 : 50);  // bid_ask: tight cap
+    ? (actualBinStep >= 125 ? 42 : 70)   // spot: wider cap
+    : (actualBinStep >= 125 ? 42 : 70);  // bid_ask: same cap as spot — safety over density
   const formulaBinsBelow = Math.min(maxBinsBelow, calcBinsFromTarget(actualBinStep, targetDownside));
 
   // ── Support-based bins (hybrid) ────────────────────────────────
