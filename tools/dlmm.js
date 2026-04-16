@@ -211,29 +211,40 @@ export async function deployPosition({
   const formulaBinsBelow = Math.min(maxBinsBelow, calcBinsFromTarget(actualBinStep, targetDownside));
 
   // ── Support-based bins (hybrid) ────────────────────────────────
-  // Fetch 50 × 1h candles, detect nearest swing-low support below current price,
-  // extend bins_below to cover it (+ 5% buffer). Take max(formula, support-based).
-  // Non-fatal: falls back to formula if fetch fails or no valid swing found.
+  // Cascade timeframe: try 1h (50 candles) → 15m → 5m for new tokens with little history.
+  // Shorter timeframes apply stricter amplitude filter to suppress noise.
+  // Non-fatal: falls back to formula if all fetches fail or no valid swing found.
+  //
+  // Timeframe config: { tf, lookbackMultiplier, minAmplitudePct, minSwings }
+  const SUPPORT_TIMEFRAMES = [
+    { tf: "1h",  sec: 3600, candles: 50, minAmp: 0.0, minSwings: 2 },
+    { tf: "15m", sec: 900,  candles: 60, minAmp: 1.5, minSwings: 2 },
+    { tf: "5m",  sec: 300,  candles: 60, minAmp: 3.0, minSwings: 3 },
+  ];
+  const BUFFER = 0.05;  // 5% safety margin below detected support
+
   let supportBinsBelow = null;
   let supportLog = null;
   if (bins_below == null) {  // only when not manually overridden
-    try {
-      const now = Math.floor(Date.now() / 1000);
-      const ohlcv = await fetchOHLCV(pool_address, {
-        startTime: now - 50 * 3600,
-        endTime:   now + 3600,
-        timeframe: "1h",
-      });
-      if (Array.isArray(ohlcv) && ohlcv.length >= 5) {
-        const support = findNearestSupport(ohlcv, 2);
-        if (support) {
-          const BUFFER = 0.05;  // 5% extra below support as safety margin
-          const targetPct = Math.min(support.distance_pct / 100 + BUFFER, 0.65);
-          supportBinsBelow = Math.min(maxBinsBelow, calcBinsFromTarget(actualBinStep, targetPct));
-          supportLog = `support at -${support.distance_pct}% (${support.swing_count} swings) → ${supportBinsBelow} bins`;
-        }
-      }
-    } catch (_) { /* non-fatal */ }
+    const now = Math.floor(Date.now() / 1000);
+    for (const { tf, sec, candles: nCandles, minAmp, minSwings } of SUPPORT_TIMEFRAMES) {
+      try {
+        const ohlcv = await fetchOHLCV(pool_address, {
+          startTime: now - nCandles * sec,
+          endTime:   now + sec,
+          timeframe: tf,
+        });
+        if (!Array.isArray(ohlcv) || ohlcv.length < 5) continue;
+
+        const support = findNearestSupport(ohlcv, minSwings, minAmp);
+        if (!support) continue;
+
+        const targetPct = Math.min(support.distance_pct / 100 + BUFFER, 0.65);
+        supportBinsBelow = Math.min(maxBinsBelow, calcBinsFromTarget(actualBinStep, targetPct));
+        supportLog = `[${tf}] support at -${support.distance_pct}% (${support.swing_count} swings, amp≥${minAmp}%) → ${supportBinsBelow} bins`;
+        break;  // found a valid result, stop cascading
+      } catch (_) { /* non-fatal, try next timeframe */ }
+    }
   }
 
   // Hybrid: take whichever is wider — formula covers volatility, support covers structure

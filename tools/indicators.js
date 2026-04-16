@@ -173,23 +173,33 @@ export function calcConsecutiveRed(candles) {
  * Find the nearest demand/support level below current price using swing lows.
  * A swing low is a candle where low[i] < low[i-1] AND low[i] < low[i+1].
  *
- * @param {Array}  candles   - OHLCV candle array (chronological order)
- * @param {number} minSwings - Minimum swing lows required to trust the result (default 2)
- * @returns {{ price: number, distance_pct: number, swing_count: number } | null}
- *   distance_pct: % distance from current price to support (positive number)
+ * @param {Array}  candles          - OHLCV candle array (chronological order)
+ * @param {number} minSwings        - Minimum swing lows required (default 2)
+ * @param {number} minAmplitudePct  - Min % gap from each neighbor for a swing to count (default 0).
+ *                                    Use 1.5 for 15m candles, 3.0 for 5m candles to filter noise.
+ * @returns {{ price, distance_pct, swing_count, timeframe } | null}
  */
-export function findNearestSupport(candles, minSwings = 2) {
+export function findNearestSupport(candles, minSwings = 2, minAmplitudePct = 0) {
   if (!Array.isArray(candles) || candles.length < 5) return null;
 
   const currentPrice = candles[candles.length - 1].close;
   if (!isFinite(currentPrice) || currentPrice <= 0) return null;
 
-  // Collect all swing lows in the candle window
+  const minAmp = minAmplitudePct / 100;
+
+  // Collect swing lows that pass amplitude filter
   const swingLows = [];
   for (let i = 1; i < candles.length - 1; i++) {
     const { low } = candles[i];
     if (!isFinite(low)) continue;
-    if (low < candles[i - 1].low && low < candles[i + 1].low) {
+    const prevLow = candles[i - 1].low;
+    const nextLow = candles[i + 1].low;
+    if (!isFinite(prevLow) || !isFinite(nextLow)) continue;
+
+    const belowPrev = (prevLow - low) / prevLow;  // how much lower than left neighbor
+    const belowNext = (nextLow - low) / nextLow;  // how much lower than right neighbor
+
+    if (low < prevLow && low < nextLow && belowPrev >= minAmp && belowNext >= minAmp) {
       swingLows.push(low);
     }
   }
@@ -206,7 +216,7 @@ export function findNearestSupport(candles, minSwings = 2) {
 
   return {
     price:        Math.round(supportPrice * 1e8) / 1e8,
-    distance_pct: Math.round(distancePct * 10) / 10,   // e.g. 18.3 means 18.3% below
+    distance_pct: Math.round(distancePct * 10) / 10,
     swing_count:  swingLows.length,
   };
 }
