@@ -10,7 +10,7 @@ Meridian runs continuous screening and management cycles, deploying capital into
 
 - **Screens pools** — scans Meteora DLMM pools against configurable thresholds (fee/TVL ratio, organic score, holder count, mcap, bin step) and surfaces high-quality opportunities
 - **Manages positions** — monitors, claims fees, and closes LP positions autonomously; decides to STAY, CLOSE, or REDEPLOY based on live data
-- **Learns from performance** — studies top LPers in target pools, saves structured lessons, and evolves screening thresholds based on closed position history
+- **Learns from performance** — studies top LPers in target pools, saves structured lessons from every closed position
 - **Darwinian signal weighting** — tracks which screening signals actually predict profitable positions and boosts/decays their weight automatically over time
 - **Discord signals** — optional Discord listener watches LP Army channels for Solana token calls and queues them for screening
 - **Telegram chat** — full agent chat via Telegram, plus cycle reports and OOR alerts
@@ -132,7 +132,6 @@ REPL commands:
 | `/learn` | Study top LPers across all current candidate pools |
 | `/learn <pool_address>` | Study top LPers for a specific pool |
 | `/thresholds` | Current screening thresholds and performance stats |
-| `/evolve` | Trigger threshold evolution from performance data (needs 5+ closed positions) |
 | `/briefing` | Show last 24h briefing |
 | `/bootstrap` | Import last 10 closed positions from Meteora API and learn from them |
 | `/stop` | Graceful shutdown |
@@ -261,7 +260,6 @@ meridian config set <key> <value>
 meridian lessons
 meridian lessons add "your lesson text"
 meridian performance [--limit 200]
-meridian evolve
 meridian pool-memory --pool <addr>
 ```
 
@@ -745,15 +743,6 @@ Add a lesson manually:
 node cli.js lessons add "Never deploy into pump.fun tokens under 2h old"
 ```
 
-### Threshold evolution
-
-After 5+ positions have been closed, run:
-```bash
-node cli.js evolve
-```
-
-This analyzes closed position performance (win rate, avg PnL, fee yields) and automatically adjusts screening thresholds in `user-config.json`. Changes take effect immediately.
-
 ---
 
 ## LLM intelligence
@@ -909,7 +898,7 @@ agent.js              ReAct loop: LLM → tool call → repeat
 config.js             Runtime config from user-config.json + .env
 prompt.js             System prompt builder (SCREENER / MANAGER / GENERAL roles)
 state.js              Position registry (state.json)
-lessons.js            Learning engine: records performance, derives lessons, evolves thresholds
+lessons.js            Learning engine: records performance, derives lessons
 signal-weights.js     Darwinian signal weighting: boosts/decays signals based on outcomes
 pool-memory.js        Per-pool deploy history + snapshots
 strategy-library.js   Saved LP strategies

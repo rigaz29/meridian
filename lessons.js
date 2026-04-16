@@ -18,8 +18,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const USER_CONFIG_PATH = path.join(__dirname, "user-config.json");
 
 const LESSONS_FILE = "./lessons.json";
-const MIN_EVOLVE_POSITIONS = 5;
-const MAX_CHANGE_PER_STEP  = 0.20;
 const MAX_MANUAL_LESSON_LENGTH = 400;
 
 function sanitizeLessonText(text, maxLen = MAX_MANUAL_LESSON_LENGTH) {
@@ -100,21 +98,6 @@ export async function recordPerformance(perf) {
       volume_trend: entry.volume_trend,
       price_vs_ath_pct: perf.price_vs_ath_pct ?? null,
     });
-  }
-
-  // Evolve thresholds every 5 closed positions
-  if (data.performance.length % MIN_EVOLVE_POSITIONS === 0) {
-    const { config, reloadScreeningThresholds } = await import("./config.js");
-    const result = evolveThresholds(data.performance, config);
-    if (result?.changes && Object.keys(result.changes).length > 0) {
-      reloadScreeningThresholds();
-      log("evolve", `Auto-evolved thresholds: ${JSON.stringify(result.changes)}`);
-    }
-    if (config.darwin?.enabled) {
-      const { recalculateWeights } = await import("./signal-weights.js");
-      const wResult = recalculateWeights(data.performance, config);
-      if (wResult.changes.length > 0) log("evolve", `Darwin: adjusted ${wResult.changes.length} signal weight(s)`);
-    }
   }
 
   import("./hive-mind.js").then(m => m.syncToHive()).catch(() => {});
@@ -230,106 +213,6 @@ function deriveLesson(perf) {
   };
 }
 
-// ─── Adaptive Threshold Evolution ──────────────────────────────
-
-export function evolveThresholds(perfData, config) {
-  if (!perfData || perfData.length < MIN_EVOLVE_POSITIONS) return null;
-
-  const winners = perfData.filter((p) => p.pnl_pct > 0);
-  const losers  = perfData.filter((p) => p.pnl_pct < -5);
-  if (winners.length < 2 && losers.length < 2) return null;
-
-  const changes = {}, rationale = {};
-
-  // ── 1. minFeeActiveTvlRatio ──────────────────────────────────
-  {
-    const winnerFees = winners.map((p) => p.fee_tvl_ratio).filter(isFiniteNum);
-    const loserFees  = losers.map((p) => p.fee_tvl_ratio).filter(isFiniteNum);
-    const current    = config.screening.minFeeActiveTvlRatio;
-    if (current != null && winnerFees.length >= 2) {
-      const minWF = Math.min(...winnerFees);
-      if (minWF > current * 1.2) {
-        const newVal = clamp(nudge(current, minWF * 0.85, MAX_CHANGE_PER_STEP), 0.05, 10.0);
-        const rounded = Number(newVal.toFixed(2));
-        if (rounded > current) { changes.minFeeActiveTvlRatio = rounded; rationale.minFeeActiveTvlRatio = `Lowest winner=${minWF.toFixed(2)} — raised ${current} → ${rounded}`; }
-      }
-    }
-    if (current != null && loserFees.length >= 2 && !changes.minFeeActiveTvlRatio) {
-      const maxLF = Math.max(...loserFees);
-      if (maxLF < current * 1.5 && winnerFees.length > 0 && Math.min(...winnerFees) > maxLF) {
-        const newVal = clamp(nudge(current, maxLF * 1.2, MAX_CHANGE_PER_STEP), 0.05, 10.0);
-        const rounded = Number(newVal.toFixed(2));
-        if (rounded > current) { changes.minFeeActiveTvlRatio = rounded; rationale.minFeeActiveTvlRatio = `Losers fee_tvl<=${maxLF.toFixed(2)} — raised ${current} → ${rounded}`; }
-      }
-    }
-  }
-
-  // ── 3. minOrganic ─────────────────────────────────────────────
-  {
-    const loserOrg = losers.map((p) => p.organic_score).filter(isFiniteNum);
-    const winnerOrg = winners.map((p) => p.organic_score).filter(isFiniteNum);
-    const current = config.screening.minOrganic;
-    if (loserOrg.length >= 2 && winnerOrg.length >= 1) {
-      const avgL = avg(loserOrg), avgW = avg(winnerOrg);
-      if (avgW - avgL >= 10) {
-        const newVal = clamp(Math.round(nudge(current, Math.max(Math.min(...winnerOrg) - 3, current), MAX_CHANGE_PER_STEP)), 60, 90);
-        if (newVal > current) { changes.minOrganic = newVal; rationale.minOrganic = `Winner avg ${avgW.toFixed(0)} vs loser ${avgL.toFixed(0)} — raised ${current} → ${newVal}`; }
-      }
-    }
-  }
-
-  // ── 4. minTvl (NEW — from enrichment) ─────────────────────────
-  {
-    const loserTvls = losers.map((p) => p.pool_tvl_usd).filter(isFiniteNum);
-    const winnerTvls = winners.map((p) => p.pool_tvl_usd).filter(isFiniteNum);
-    const current = config.screening.minTvl ?? 0;
-    if (loserTvls.length >= 2 && winnerTvls.length >= 1) {
-      const lMed = percentile(loserTvls, 50), wMed = percentile(winnerTvls, 50);
-      if (wMed > lMed * 1.5) {
-        const newVal = clamp(nudge(current, lMed * 1.2, MAX_CHANGE_PER_STEP), 0, 500_000);
-        const rounded = Math.round(newVal);
-        if (rounded > current) { changes.minTvl = rounded; rationale.minTvl = `Loser median TVL=$${lMed.toFixed(0)} vs winner=$${wMed.toFixed(0)} — raised $${current} → $${rounded}`; }
-      }
-    }
-  }
-
-  // ── 5. maxPriceVolatility (NEW — from enrichment) ─────────────
-  {
-    const loserPV = losers.map((p) => p.price_range_pct).filter(isFiniteNum);
-    const current = config.screening.maxPriceVolatility ?? 50;
-    if (loserPV.length >= 2) {
-      const lP25 = percentile(loserPV, 25);
-      if (lP25 < current) {
-        const newVal = clamp(nudge(current, lP25 * 1.1, MAX_CHANGE_PER_STEP), 5, 100);
-        const rounded = Number(newVal.toFixed(1));
-        if (rounded < current) { changes.maxPriceVolatility = rounded; rationale.maxPriceVolatility = `Losers price_range ~${lP25.toFixed(1)}% — tightened ${current}% → ${rounded}%`; }
-      }
-    }
-  }
-
-  if (Object.keys(changes).length === 0) return { changes: {}, rationale: {} };
-
-  // Persist
-  let userConfig = {};
-  if (fs.existsSync(USER_CONFIG_PATH)) { try { userConfig = JSON.parse(fs.readFileSync(USER_CONFIG_PATH, "utf8")); } catch {} }
-  Object.assign(userConfig, changes);
-  userConfig._lastEvolved = new Date().toISOString();
-  userConfig._positionsAtEvolution = perfData.length;
-  fs.writeFileSync(USER_CONFIG_PATH, JSON.stringify(userConfig, null, 2));
-
-  const s = config.screening;
-  for (const [k, v] of Object.entries(changes)) { if (s[k] !== undefined || k === "maxPriceVolatility") s[k] = v; }
-
-  const data = load();
-  data.lessons.push({
-    id: Date.now(),
-    rule: `[AUTO-EVOLVED @ ${perfData.length} positions] ${Object.entries(changes).map(([k,v]) => `${k}=${v}`).join(", ")} — ${Object.values(rationale).join("; ")}`,
-    tags: ["evolution", "config_change"], outcome: "manual", created_at: new Date().toISOString(),
-  });
-  save(data);
-  return { changes, rationale };
-}
-
 // ─── Bootstrap from On-Chain History ──────────────────────────
 
 export async function bootstrapFromHistory(walletAddress, { limit = 25, force = false } = {}) {
@@ -410,18 +293,6 @@ export async function bootstrapFromHistory(walletAddress, { limit = 25, force = 
 // ─── Helpers ───────────────────────────────────────────────────
 
 function isFiniteNum(n) { return typeof n === "number" && isFinite(n); }
-function avg(arr) { if (!arr.length) return null; return arr.reduce((s, x) => s + x, 0) / arr.length; }
-function percentile(arr, p) {
-  const sorted = [...arr].sort((a, b) => a - b);
-  const idx = (p / 100) * (sorted.length - 1);
-  const lo = Math.floor(idx), hi = Math.ceil(idx);
-  return sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo);
-}
-function clamp(val, min, max) { return Math.max(min, Math.min(max, val)); }
-function nudge(current, target, maxChange) {
-  const delta = target - current, maxDelta = current * maxChange;
-  return Math.abs(delta) <= maxDelta ? target : current + Math.sign(delta) * maxDelta;
-}
 
 // ─── Manual Lessons ────────────────────────────────────────────
 

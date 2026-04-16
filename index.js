@@ -6,8 +6,8 @@ import { log } from "./logger.js";
 import { getMyPositions, closePosition, getActiveBin } from "./tools/dlmm.js";
 import { getWalletBalances, swapToken } from "./tools/wallet.js";
 import { getTopCandidates, getPoolDetail } from "./tools/screening.js";
-import { config, reloadScreeningThresholds, computeDeployAmount } from "./config.js";
-import { evolveThresholds, getPerformanceSummary, bootstrapFromHistory, getRelevantLessons } from "./lessons.js";
+import { config, computeDeployAmount } from "./config.js";
+import { getPerformanceSummary, bootstrapFromHistory, getRelevantLessons } from "./lessons.js";
 import { registerCronRestarter } from "./tools/executor.js";
 import { startPolling, stopPolling, sendMessage, sendHTML, notifyOutOfRange, notifyClose, isEnabled as telegramEnabled, createLiveMessage, formatPositionsList } from "./telegram.js";
 import { generateBriefing } from "./briefing.js";
@@ -1421,8 +1421,7 @@ Commands:
   /learn         Study top LPers from the best current pool and save lessons
   /learn <addr>  Study top LPers from a specific pool address
   /thresholds    Show current screening thresholds + performance stats
-  /evolve        Manually trigger threshold evolution from performance data
-  /bootstrap     Import last 10 closed positions from Meteora API and learn from them
+/bootstrap     Import last 10 closed positions from Meteora API and learn from them
   /stop          Shut down
 `);
 
@@ -1580,31 +1579,6 @@ Focus on: hold duration, entry/exit timing, what win rates look like, whether sc
           "GENERAL"
         );
         console.log(`\n${reply}\n`);
-      });
-      return;
-    }
-
-    if (input === "/evolve") {
-      await runBusy(async () => {
-        const perf = getPerformanceSummary();
-        if (!perf || perf.total_positions_closed < 5) {
-          const needed = 5 - (perf?.total_positions_closed || 0);
-          console.log(`\nNeed at least 5 closed positions to evolve. ${needed} more needed.\n`);
-          return;
-        }
-        const fs = await import("fs");
-        const lessonsData = JSON.parse(fs.default.readFileSync("./lessons.json", "utf8"));
-        const result = evolveThresholds(lessonsData.performance, config);
-        if (!result || Object.keys(result.changes).length === 0) {
-          console.log("\nNo threshold changes needed — current settings already match performance data.\n");
-        } else {
-          reloadScreeningThresholds();
-          console.log("\nThresholds evolved:");
-          for (const [key, val] of Object.entries(result.changes)) {
-            console.log(`  ${key}: ${result.rationale[key]}`);
-          }
-          console.log("\nSaved to user-config.json. Applied immediately.\n");
-        }
       });
       return;
     }

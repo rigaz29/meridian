@@ -173,12 +173,6 @@ Returns deploy history for a specific pool from pool-memory.json.
 Output: { pool_address, known, name, total_deploys, win_rate, avg_pnl_pct, last_outcome, notes, history }
 \`\`\`
 
-### meridian evolve
-Runs evolveThresholds() over all closed position data and updates user-config.json.
-\`\`\`
-Output: { evolved, changes, rationale }
-\`\`\`
-
 ### meridian blacklist add --mint <addr> --reason <text>
 Permanently blacklists a token mint so it is never deployed into.
 \`\`\`
@@ -551,25 +545,6 @@ switch (subcommand) {
     if (!flags.pool) die("Usage: meridian pool-memory --pool <addr>");
     const { getPoolMemory } = await import("./pool-memory.js");
     out(getPoolMemory({ pool_address: flags.pool }));
-    break;
-  }
-
-  // ── evolve ───────────────────────────────────────────────────────
-  case "evolve": {
-    const { config } = await import("./config.js");
-    const { evolveThresholds } = await import("./lessons.js");
-    const fs2 = await import("fs");
-    const lessonsFile = "./lessons.json";
-    let perfData = [];
-    if (fs2.existsSync(lessonsFile)) {
-      try { perfData = JSON.parse(fs2.readFileSync(lessonsFile, "utf8")).performance || []; } catch { /* no data */ }
-    }
-    const result = evolveThresholds(perfData, config);
-    if (!result) {
-      out({ evolved: false, reason: `Need at least 5 closed positions (have ${perfData.length})` });
-    } else {
-      out({ evolved: Object.keys(result.changes).length > 0, changes: result.changes, rationale: result.rationale });
-    }
     break;
   }
 
