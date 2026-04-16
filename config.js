@@ -73,7 +73,7 @@ export const config = {
     stopLossPct:           u.stopLossPct           ?? u.emergencyPriceDropPct ?? -20,
     minAgeBeforeSL:        u.minAgeBeforeSL        ?? 7,   // minutes before stop loss can trigger
     velocitySLEnabled:     u.velocitySLEnabled     ?? true, // enable/disable velocity stop-loss
-    pnlVelocitySLPct:      u.pnlVelocitySLPct      ?? 5,   // close if PnL drops X% within velocity window
+    pnlVelocitySLPct:      u.pnlVelocitySLPct      ?? 3,   // close if PnL drops X% within velocity window
     pnlVelocityWindowSec:  u.pnlVelocityWindowSec  ?? 90,  // velocity measurement window in seconds
     takeProfitFeePct:      u.takeProfitFeePct      ?? 5,
     minFeePerTvl24h:       u.minFeePerTvl24h       ?? 7,
