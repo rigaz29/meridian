@@ -1083,7 +1083,7 @@ Summarize the current portfolio health, total fees earned, and performance of al
           const minAge = config.management.minAgeBeforeSL ?? 7;
           const windowStart = now - windowMs;
           const oldest = trimmed.find(h => h.ts >= windowStart);
-          if (velocityThreshold > 0 && oldest && oldest !== trimmed[trimmed.length - 1] && (p.age_minutes ?? 0) >= minAge) {
+          if (effectiveVelocityThreshold > 0 && oldest && oldest !== trimmed[trimmed.length - 1] && (p.age_minutes ?? 0) >= minAge) {
             const drop = oldest.pnl_pct - p.pnl_pct;
             if (drop >= effectiveVelocityThreshold) {
               if (_closingPositions.has(p.position)) continue; // already being closed
