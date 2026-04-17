@@ -116,7 +116,7 @@ Returns AI-generated narrative about the token.
 Output: { mint, narrative }
 \`\`\`
 
-### meridian pool-detail --pool <addr> [--timeframe 5m]
+### meridian pool-detail --pool <addr> [--timeframe 1h]
 Returns detailed pool metrics for a specific pool.
 \`\`\`
 Output: { pool, name, bin_step, fee_pct, volume, tvl, volatility, ... }
@@ -382,9 +382,9 @@ switch (subcommand) {
 
   // ── pool-detail ───────────────────────────────────────────────
   case "pool-detail": {
-    if (!flags.pool) die("Usage: meridian pool-detail --pool <addr> [--timeframe 5m]");
+    if (!flags.pool) die("Usage: meridian pool-detail --pool <addr> [--timeframe 1h]");
     const { getPoolDetail } = await import("./tools/screening.js");
-    out(await getPoolDetail({ pool_address: flags.pool, timeframe: flags.timeframe || "5m" }));
+    out(await getPoolDetail({ pool_address: flags.pool, timeframe: flags.timeframe || "1h" }));
     break;
   }
 

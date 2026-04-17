@@ -211,7 +211,7 @@ meridian wallet-positions --wallet <addr>
 
 ```bash
 meridian candidates --limit 5
-meridian pool-detail --pool <addr> [--timeframe 5m]
+meridian pool-detail --pool <addr> [--timeframe 1h]
 meridian active-bin --pool <addr>
 meridian search-pools --query <name_or_symbol>
 ```
@@ -407,7 +407,7 @@ All fields are optional — defaults shown. Edit `user-config.json`.
 | `maxMcap` | `25000000` | Maximum market cap (USD) |
 | `minBinStep` | `80` | Minimum bin step |
 | `maxBinStep` | `125` | Maximum bin step |
-| `timeframe` | `5m` | Candle timeframe for screening |
+| `timeframe` | `1h` | Candle timeframe for screening |
 | `category` | `trending` | Pool category (`top`, `new`, `trending`) |
 | `minTokenFeesSol` | `30` | Minimum all-time fees in SOL |
 | `maxBundlePct` | `30` | Maximum bundler % in top 100 holders |
@@ -416,8 +416,7 @@ All fields are optional — defaults shown. Edit `user-config.json`.
 | `blockedLaunchpads` | `[]` | Launchpad names to never deploy into |
 | `minTokenAgeHours` | `null` | Minimum token age in hours (null = no filter) |
 | `maxTokenAgeHours` | `null` | Maximum token age in hours (null = no filter) |
-| `athFilterPct` | `null` | Only deploy if price is ≥ X% below ATH (e.g. `-20`) |
-| `maxPriceChangePct` | `null` | Skip pools where `price_change_pct` exceeds this value in the current timeframe (e.g. `8` = skip if price is up >8%). Prevents entering at pump peaks when using `bins_above=0`. `null` = disabled. |
+| `athFilterPct` | `-20` | Only deploy if price is ≥ X% below ATH (e.g. `-20` = price must be ≤ 80% of ATH) |
 
 ### Management
 
@@ -450,7 +449,7 @@ All fields are optional — defaults shown. Edit `user-config.json`.
 | `takeProfitFeePct` | `15` | Close when unclaimed fees reach X% of position value — acts as ceiling; trailing TP handles most exits before this |
 | `trailingTakeProfit` | `true` | Enable trailing take-profit |
 | `trailingTriggerPct` | `3` | Activate trailing at X% PnL |
-| `trailingDropPct` | `1.5` | Base drop threshold — actual threshold is dynamic based on peak: peak <5% → cap at 1.5×volScale (entry zone buffer), peak 5–10% → this value × volScale, peak >10% → max(this, 2.0) × volScale |
+| `trailingDropPct` | `1.5` | Base drop threshold — actual threshold is tiered by peak PnL: peak 3–4% → base (1.5%), peak 4–7% → max(base, 2.0%), peak 7–10% → max(base, 2.5%), peak 10–15% → max(base, 3.0%), peak >15% → max(base, 4.0%) |
 | `autoClaimPct` | `5` | Auto-claim when unclaimed fees ≥ X% of position value |
 | `autoSwapAfterClaim` | `false` | Swap base token to SOL after claiming |
 | `solMode` | `false` | Report positions and PnL in SOL instead of USD |
@@ -468,41 +467,32 @@ All fields are optional — defaults shown. Edit `user-config.json`.
 | `lpStrategyMode` | `auto` | How to pick bid_ask vs spot: `auto` (signal-based, LLM decides), `bid_ask` (always bid_ask), `spot` (always spot), `fee_tvl` (decide by fee/TVL ratio — see below) |
 | `ftvlThreshold` | `1.2` | Fee/TVL threshold for `fee_tvl` mode: ≤ threshold → spot, > threshold → bid_ask. Always measured at 1h timeframe regardless of screening timeframe. |
 | `binsBelow` | `69` | Bins below active bin (overrides volatility formula when set) |
-| `targetDownsidePct` | `0.35` | Cover X% price drop below active bin |
+| `targetDownsidePct` | `0.41` | Cover X% price drop below active bin — calibrated to hit sweet spots from 270-position backtest: bs=100 → ~53 bins, bs=80 → capped at 50, bs=125 → capped at 35 |
 | `targetUpsidePct` | `0.20` | Cover X% price rise above active bin (spot/curve only) |
-| `dynamicBinsAbove` | `true` | When `true`, empty buffer bins above active bin are calculated dynamically from volatility + bin_step: `targetUpside = 0.04 + (vol/5) * 0.06`, natural max = 12 at vol=5/bs=80. No liquidity placed there, but `maxBinId` is extended upward so the OOR-above clock doesn't start until price pumps past the buffer. When `false`, no buffer (0 bins). |
+| `binsAboveBuffer` | `10` | Fixed empty buffer bins above active bin for SOL-only/bid_ask positions. No liquidity placed there, but extends `maxBinId` upward so the OOR-above trigger is delayed. `0` = disabled. |
 
-#### Bins below — dynamic formula
+#### Bins below — formula
 
-When `binsBelow` is not set, the number of bins below the active bin is auto-calculated from pool volatility and the active strategy (`spot`/`curve` vs `bid_ask`):
+When `binsBelow` is not set, the number of bins below the active bin is auto-calculated from `targetDownsidePct` and the active strategy. Volatility is intentionally excluded — it was inconsistent across timeframes and hurt predictability.
 
-Both strategies share the same cap (safety over density) — bid_ask uses a slightly lower base target but can extend just as wide:
-
-**bid_ask** (base = `targetDownsidePct`, default 0.38):
+**bid_ask** (base = `targetDownsidePct`, default 0.41):
 ```
-targetDownside = min(0.55, targetDownsidePct + (vol / 7) × 0.09)
+targetDownside = min(0.55, targetDownsidePct)
 bins_below     = min(cap, calcBinsFromTarget(binStep, targetDownside))
 ```
 
-| Volatility | Target downside | bs=80 bins | bs=100 bins | bs=125 bins |
-|---|---|---|---|---|
-| 0 | 38% | 52 | 49 | 34 |
-| 3.5 | 42.5% | 59 | 56 | 38 |
-| 7 | 47% | 67 | 64 | 41 (cap) |
-
-**spot / curve** (base = `targetDownsidePct + 4%`, default 0.42):
+**spot / curve** (base = `targetDownsidePct + 4%`, default 0.45):
 ```
-targetDownside = min(0.55, targetDownsidePct + 0.04 + (vol / 7) × 0.09)
+targetDownside = min(0.55, targetDownsidePct + 0.04)
 bins_below     = min(cap, calcBinsFromTarget(binStep, targetDownside))
 ```
 
-| Volatility | Target downside | bs=80 bins | bs=100 bins | bs=125 bins |
-|---|---|---|---|---|
-| 0 | 42% | 58 | 55 | 37 |
-| 3.5 | 46.5% | 67 | 63 | 40 |
-| 7 | 51% | 70 (cap) | 69 | 42 (cap) |
+Caps are derived from 270-position backtest sweet spots:
 
-Caps (both strategies): `bs ≥ 125` → 42, `bs < 125` → 70.
+| Strategy | bs=80 | bs=100 | bs=125 |
+|---|---|---|---|
+| bid_ask | cap 50, ~50 bins | cap 55, ~53 bins | cap 35, ~35 bins |
+| spot/curve | cap 50, ~50 bins | cap 55, ~55 bins | cap 35, ~35 bins |
 
 #### Support-based bins (hybrid)
 
@@ -594,13 +584,7 @@ When deploying SOL-only (`bid_ask` or explicit `bins_above=0`), all liquidity si
 | Still pumping | `> +8%` | **CAUTION** — may deploy OOR immediately; only acceptable with `smart_money_buy` + rising volume |
 | Sharp dump | `< -30%` AND volume collapsing | **AVOID** — likely rug, not a recoverable dip |
 
-The screener agent applies these heuristics automatically. You can also enforce the pump guard as a hard filter:
-
-```bash
-node cli.js config set maxPriceChangePct 8
-```
-
-This drops any pool from the candidate list where `price_change_pct` exceeds 8% in the current screening timeframe.
+The screener agent applies these heuristics automatically. The ATH filter (`athFilterPct`, default `-20`) provides a structural guard — pools where price is still within 20% of its all-time high are dropped before the LLM sees them.
 
 ### Entry signal logging & backtest
 
@@ -647,18 +631,17 @@ All stop losses respect `minAgeBeforeSL` (7 min) to avoid false triggers on fres
 
 | Layer | Trigger | Notes |
 |---|---|---|
-| **Trailing TP** | PnL activates at `trailingTriggerPct` (3%), closes when drops from confirmed peak | Drop threshold is dynamic: peak <5% → cap at 1.5×volScale (entry-zone buffer), peak 5–10% → `trailingDropPct` (1.5%) × volScale, peak >10% → max(1.5, 2.0) × volScale. Suppresses static TP once active. |
+| **Trailing TP** | PnL activates at `trailingTriggerPct` (3%), closes when drops from confirmed peak | Drop threshold is tiered by peak: 3–4% → 1.5%, 4–7% → 2.0%, 7–10% → 2.5%, 10–15% → 3.0%, >15% → 4.0%. Suppresses static TP once active. |
 | **Static TP** | `unclaimed fees ≥ takeProfitFeePct` (15%) of position value | Emergency ceiling before trailing activates |
 
 ### OOR exits
 
 | Rule | Trigger |
 |---|---|
-| Upside OOR | Active bin > upper bin for `outOfRangeWaitMinutes` (30m) before close |
-| Downside OOR | Active bin < lower bin for `downsideOorWaitMinutes` (5m) — faster because recovery from below range is rare |
+| Downside OOR | Active bin < lower bin for `downsideOorWaitMinutes` (5m) — fast exit, recovery from below range is rare |
 | Far above range | Active bin > upper bin + `outOfRangeBinsToClose` — closes immediately, no wait |
 
-`dynamicBinsAbove` (default `true`) extends the upper bin boundary by N empty buffer bins calculated from volatility + bin_step — so the 30-min OOR-above clock only starts once price pumps past the buffer, giving extra time without placing any liquidity above. Max 12 bins at vol=5/bs=80; scales down for lower volatility or larger bin steps. Set to `false` to disable the buffer entirely.
+`binsAboveBuffer` (default `10`) extends the upper bin boundary by N empty buffer bins — so the far-above-range trigger doesn't fire until price pumps well past the active range, giving extra time without placing any liquidity above. Set to `0` to disable.
 
 ---
 

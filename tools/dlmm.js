@@ -147,26 +147,23 @@ export async function deployPosition({
   // Both strategies prioritise staying in range on the downside so price can bounce from demand zones.
   // bid_ask (SOL-only) uses a slightly lower base target than spot, but the same cap.
   const isSpotLike = activeStrategy === "spot" || activeStrategy === "curve";
-  const baseDownside = config.strategy.targetDownsidePct ?? 0.38;
+  // targetDownside fixed per strategy — no volatility scaling (vol data inconsistent across timeframes).
+  // Default 0.41 targets sweet spot from 270-position analysis: bs=100→53 bins, bs=80→capped@50, bs=125→capped@35.
+  const baseDownside = config.strategy.targetDownsidePct ?? 0.41;
   const targetDownside = isSpotLike
-    ? Math.min(0.55, (baseDownside + 0.04) + (vol / 7) * 0.09)  // spot: base+4%, scales with vol
-    : Math.min(0.55, baseDownside + (vol / 7) * 0.09);           // bid_ask: base, scales with vol
+    ? Math.min(0.55, baseDownside + 0.04)   // spot: +4% more coverage than bid_ask
+    : Math.min(0.55, baseDownside);
   const targetUpside   = Math.min(0.35, 0.15 + (vol / 7) * 0.15);  // vol=0→15%, vol=3.5→22.5%, vol=7→30%
 
   // Preliminary estimate using provided bin_step (used for DRY_RUN and wide-range check)
   const estBinStep = bin_step ?? 100;
-  const estMaxBinsBelow = isSpotLike
-    ? (estBinStep >= 125 ? 42 : 70)   // spot: wider cap — >50 bins gives 95% range efficiency
-    : (estBinStep >= 125 ? 42 : 70);  // bid_ask: same cap as spot — safety over density
+  // Caps from 270-position backtest sweet spots: bs=125→35, bs=100→55, bs=80→50
+  const estMaxBinsBelow = estBinStep >= 125 ? 35 : estBinStep >= 100 ? 55 : 50;
   const activeBinsBelow = bins_below != null
     ? Math.min(bins_below, estMaxBinsBelow)
     : Math.min(estMaxBinsBelow, calcBinsFromTarget(estBinStep, targetDownside));
   const isSolOnly = !amount_x || amount_x <= 0;
-  // dynamic buffer: targetUpside = 0.04 + (vol/7)*0.06 → vol=0→4%, vol=3.5→7%, vol=7→10%
-  // at vol=7, bs=80: calcBinsFromTarget(80, 0.10) = 12 (natural max, no cap needed)
-  const binsAboveBuffer = config.strategy.dynamicBinsAbove
-    ? calcBinsFromTarget(estBinStep, 0.04 + (vol / 7) * 0.06, true)
-    : 0;
+  const binsAboveBuffer = config.strategy.binsAboveBuffer ?? 0;
   const activeBinsAbove = (activeStrategy === "bid_ask" || isSolOnly)
     ? binsAboveBuffer  // empty buffer bins — no liquidity, but extends upper bound to delay OOR above trigger
     : (bins_above != null ? bins_above : calcBinsFromTarget(estBinStep, targetUpside, true));
@@ -206,9 +203,7 @@ export async function deployPosition({
   // Recalculate bins using actual pool bin_step (unless explicitly provided by caller)
   // targetDownside already computed above using volatility + strategy
   const actualBinStep = pool.lbPair.binStep;
-  const maxBinsBelow = isSpotLike
-    ? (actualBinStep >= 125 ? 42 : 70)   // spot: wider cap
-    : (actualBinStep >= 125 ? 42 : 70);  // bid_ask: same cap as spot — safety over density
+  const maxBinsBelow = actualBinStep >= 125 ? 35 : actualBinStep >= 100 ? 55 : 50;
   const formulaBinsBelow = Math.min(maxBinsBelow, calcBinsFromTarget(actualBinStep, targetDownside));
 
   // ── Support-based bins (hybrid) ────────────────────────────────
@@ -266,9 +261,7 @@ export async function deployPosition({
     log("deploy", `bins_below hybrid: formula=${formulaBinsBelow} | ${supportLog} | final=${finalBinsBelow}`);
   }
   // recalculate with actual bin_step from pool (more accurate than estimate)
-  const finalBinsAboveBuffer = config.strategy.dynamicBinsAbove
-    ? calcBinsFromTarget(actualBinStep, 0.04 + (vol / 7) * 0.06, true)
-    : 0;
+  const finalBinsAboveBuffer = config.strategy.binsAboveBuffer ?? 0;
   const finalBinsAbove = (activeStrategy === "bid_ask" || (amount_x ?? 0) <= 0)
     ? finalBinsAboveBuffer  // empty buffer bins — extends upper bound without requiring token X
     : (bins_above != null ? bins_above : calcBinsFromTarget(actualBinStep, targetUpside, true));

@@ -207,7 +207,7 @@ set_position_note: ({ position_address, instruction }) => {
       ftvlThreshold:       ["strategy", "ftvlThreshold"],
       targetDownsidePct: ["strategy", "targetDownsidePct"],
       targetUpsidePct:   ["strategy", "targetUpsidePct"],
-      dynamicBinsAbove:  ["strategy", "dynamicBinsAbove"],
+      binsAboveBuffer:   ["strategy", "binsAboveBuffer"],
     };
 
     const applied = {};

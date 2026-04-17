@@ -57,27 +57,22 @@ const TP_PCT = config.management.takeProfitFeePct;
 const DEPLOY = config.management.deployAmountSol;
 
 /**
- * Dynamic trailing drop threshold based on confirmed peak PnL.
- * Tighter at low peaks (lock in small gains quickly),
- * wider at high peaks (give room for big pumps to continue).
+ * Dynamic trailing drop threshold — pure tiered by peak PnL, no volatility dependency.
  *
- * Peak 3–5%  → 1.5×  (entry zone — enough room to avoid DLMM fee fluctuation noise)
- * Peak 5–10% → base  (standard)
- * Peak >10%  → max(base, 2.0)  (let big winners run longer)
- *
- * Volatility scaling (applied to all thresholds above):
- * vol=0 → 1.0× (no change), vol=3.5 → 1.25×, vol=7 → 1.5×
- * High-vol tokens have wilder PnL swings — need wider drop tolerance to avoid premature exits.
+ * Peak  3– 4% → base        (default 1.5% — lock in early gains)
+ * Peak  4– 7% → max(base, 2.0%)
+ * Peak  7–10% → max(base, 2.5%)
+ * Peak 10–15% → max(base, 3.0%)
+ * Peak   >15% → max(base, 4.0%) (let big pumps run)
  */
-export function dynamicTrailingDropPct(peakPnlPct, volatility) {
-  const cfgBase = config.management.trailingDropPct ?? 1.5;
-  const vol = typeof volatility === "number" && volatility >= 0 ? volatility : 0;
-  const volScale = 1 + (vol / 7) * 0.5;  // vol=0→1.0×, vol=3.5→1.25×, vol=7→1.5×
-  const base = cfgBase * volScale;
+export function dynamicTrailingDropPct(peakPnlPct) {
+  const base = config.management.trailingDropPct ?? 1.5;
   if (peakPnlPct == null) return parseFloat(base.toFixed(2));
-  if (peakPnlPct >= 10) return parseFloat(Math.max(base, 2.0 * volScale).toFixed(2));
-  if (peakPnlPct >= 5)  return parseFloat(base.toFixed(2));
-  return parseFloat(Math.min(base, 1.5 * volScale).toFixed(2));
+  if (peakPnlPct >= 15) return parseFloat(Math.max(base, 4.0).toFixed(2));
+  if (peakPnlPct >= 10) return parseFloat(Math.max(base, 3.0).toFixed(2));
+  if (peakPnlPct >= 7)  return parseFloat(Math.max(base, 2.5).toFixed(2));
+  if (peakPnlPct >= 4)  return parseFloat(Math.max(base, 2.0).toFixed(2));
+  return parseFloat(base.toFixed(2));
 }
 
 /**
@@ -219,7 +214,7 @@ function scheduleTrailingDropConfirmation(positionAddress) {
       const resolved = resolvePendingTrailingDrop(
         positionAddress,
         position?.pnl_pct ?? null,
-        dynamicTrailingDropPct(resolvedPeak, resolvedTracked?.volatility),
+        dynamicTrailingDropPct(resolvedPeak),
         TRAILING_DROP_CONFIRM_TOLERANCE_PCT,
       );
       if (resolved?.confirmed) {
@@ -408,7 +403,7 @@ export async function runManagementCycle({ silent = false } = {}) {
       const exit = updatePnlAndCheckExits(p.position, p, config.management);
       if (exit) {
         if (exit.action === "TRAILING_TP" && exit.needs_confirmation) {
-          if (queueTrailingDropConfirmation(p.position, exit.peak_pnl_pct, exit.current_pnl_pct, dynamicTrailingDropPct(exit.peak_pnl_pct, getTrackedPosition(p.position)?.volatility))) {
+          if (queueTrailingDropConfirmation(p.position, exit.peak_pnl_pct, exit.current_pnl_pct, dynamicTrailingDropPct(exit.peak_pnl_pct))) {
             scheduleTrailingDropConfirmation(p.position);
           }
           continue;
@@ -464,18 +459,7 @@ export async function runManagementCycle({ silent = false } = {}) {
         actionMap.set(p.position, { action: "CLOSE", rule: 3, reason: "pumped far above range" });
         continue;
       }
-      // Rule 4: stale above range — timeout scales down with volatility (high vol = exit faster)
-      {
-        const vol = tracked?.volatility ?? 1;
-        const effectiveOorWait = Math.round(config.management.outOfRangeWaitMinutes / Math.sqrt(Math.max(1, vol)));
-        if (p.active_bin != null && p.upper_bin != null &&
-            p.active_bin > p.upper_bin &&
-            (p.minutes_out_of_range ?? 0) >= effectiveOorWait) {
-          actionMap.set(p.position, { action: "CLOSE", rule: 4, reason: `upside OOR (${effectiveOorWait}m)` });
-          continue;
-        }
-      }
-      // Rule 4b: downside OOR — close faster, recovery from below range is rare on meme tokens
+      // Rule 4: downside OOR — close faster, recovery from below range is rare on meme tokens
       {
         const downsideWait = config.management.downsideOorWaitMinutes ?? 10;
         if (p.active_bin != null && p.lower_bin != null &&
@@ -1200,7 +1184,7 @@ Summarize the current portfolio health, total fees earned, and performance of al
         const exit = updatePnlAndCheckExits(p.position, p, config.management);
         if (exit) {
           if (exit.action === "TRAILING_TP" && exit.needs_confirmation) {
-            if (queueTrailingDropConfirmation(p.position, exit.peak_pnl_pct, exit.current_pnl_pct, dynamicTrailingDropPct(exit.peak_pnl_pct, getTrackedPosition(p.position)?.volatility))) {
+            if (queueTrailingDropConfirmation(p.position, exit.peak_pnl_pct, exit.current_pnl_pct, dynamicTrailingDropPct(exit.peak_pnl_pct))) {
               scheduleTrailingDropConfirmation(p.position);
             }
             continue;

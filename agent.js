@@ -174,7 +174,9 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
 
   // Track write tools fired this session — prevent the model from calling the same
   // destructive tool twice (e.g. deploy twice, swap twice after auto-swap)
-  const ONCE_PER_SESSION = new Set(["deploy_position", "swap_token", "close_position"]);
+  // close_position is intentionally excluded — closing multiple positions per session is valid.
+  // Duplicate-close protection is handled by _closingPositions mutex in index.js.
+  const ONCE_PER_SESSION = new Set(["deploy_position", "swap_token"]);
   // These lock after first attempt regardless of success — retrying them is always wrong
   const NO_RETRY_TOOLS = new Set(["deploy_position"]);
   const firedOnce = new Set();

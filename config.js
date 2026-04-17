@@ -54,9 +54,8 @@ export const config = {
     blockedLaunchpads:  u.blockedLaunchpads  ?? [],  // e.g. ["letsbonk.fun", "pump.fun"]
     minTokenAgeHours:   u.minTokenAgeHours   ?? null, // null = no minimum
     maxTokenAgeHours:   u.maxTokenAgeHours   ?? null, // null = no maximum
-    athFilterPct:       u.athFilterPct       ?? null, // e.g. -20 = only deploy if price is >= 20% below ATH
-    maxPriceChangePct:  u.maxPriceChangePct  ?? null, // e.g. 5 = skip pools where price_change_pct > 5% (avoid entering at pump peak); null = disabled
-    maxPriceVolatility: u.maxPriceVolatility ?? 50,   // max % price swing during position (auto-evolved)
+    athFilterPct:       u.athFilterPct       ?? -20,  // only deploy if price is >= 20% below ATH
+maxPriceVolatility: u.maxPriceVolatility ?? 50,   // max % price swing during position (auto-evolved)
   },
 
   // ─── Position Management ────────────────
@@ -109,9 +108,9 @@ export const config = {
     strategy:         u.strategy         ?? "bid_ask",
     lpStrategyMode:      u.lpStrategyMode      ?? "auto",  // "bid_ask" | "spot" | "auto" | "fee_tvl"
     ftvlThreshold:       u.ftvlThreshold       ?? 1.2,   // fee_tvl mode: fee/tvl <= this → spot, > this → bid_ask (1.2 = backtest cutoff where bid_ask wins +1.59pp)
-    targetDownsidePct: u.targetDownsidePct ?? 0.35,  // cover X% price drop below active bin
+    targetDownsidePct: u.targetDownsidePct ?? 0.41,  // cover X% price drop below active bin (0.41→bs100≈53bins, bs80 capped@50, bs125 capped@35)
     targetUpsidePct:   u.targetUpsidePct   ?? 0.20,  // cover X% price rise above active bin (spot only)
-    dynamicBinsAbove:  u.dynamicBinsAbove  ?? true,  // dynamic empty buffer bins above active bin for SOL-only/bid_ask: scales with vol+bin_step, max 12 at vol=5/bs=80. false = no buffer (0 bins)
+    binsAboveBuffer:   u.binsAboveBuffer   ?? 10,    // fixed empty buffer bins above active bin for SOL-only/bid_ask (no liquidity, delays OOR-above trigger). 0 = disabled.
   },
 
   // ─── Scheduling ─────────────────────────

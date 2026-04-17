@@ -509,17 +509,16 @@ export function updatePnlAndCheckExits(position_address, positionData, mgmtConfi
   // ── Trailing TP ────────────────────────────────────────────────
   if (!pnl_pct_suspicious && currentPnlPct != null && pos.trailing_active) {
     const dropFromPeak = pos.peak_pnl_pct - currentPnlPct;
-    // Dynamic drop threshold: scales with peak PnL and position volatility
+    // Dynamic drop threshold — pure tiered by peak PnL (mirrors dynamicTrailingDropPct in index.js)
     const effectiveDropPct = (() => {
-      const cfgBase = mgmtConfig.trailingDropPct ?? 1.5;
-      const vol = typeof pos.volatility === "number" && pos.volatility >= 0 ? pos.volatility : 0;
-      const volScale = 1 + (vol / 7) * 0.5;  // vol=0→1.0×, vol=3.5→1.25×, vol=7→1.5×
-      const base = cfgBase * volScale;
+      const base = mgmtConfig.trailingDropPct ?? 1.5;
       const peak = pos.peak_pnl_pct;
       if (peak == null) return parseFloat(base.toFixed(2));
-      if (peak >= 10) return parseFloat(Math.max(base, 2.0 * volScale).toFixed(2));
-      if (peak >= 5)  return parseFloat(base.toFixed(2));
-      return parseFloat(Math.min(base, 1.0 * volScale).toFixed(2));
+      if (peak >= 15) return parseFloat(Math.max(base, 4.0).toFixed(2));
+      if (peak >= 10) return parseFloat(Math.max(base, 3.0).toFixed(2));
+      if (peak >= 7)  return parseFloat(Math.max(base, 2.5).toFixed(2));
+      if (peak >= 4)  return parseFloat(Math.max(base, 2.0).toFixed(2));
+      return parseFloat(base.toFixed(2));
     })();
     if (dropFromPeak >= effectiveDropPct) {
       return {
