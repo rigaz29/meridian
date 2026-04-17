@@ -153,7 +153,6 @@ export async function deployPosition({
   const targetDownside = isSpotLike
     ? Math.min(0.55, baseDownside + 0.04)   // spot: +4% more coverage than bid_ask
     : Math.min(0.55, baseDownside);
-  const targetUpside   = Math.min(0.35, config.strategy.targetUpsidePct ?? 0.20);  // spot/curve only — bins_above for token X deploy
 
   // Preliminary estimate using provided bin_step (used for DRY_RUN and wide-range check)
   const estBinStep = bin_step ?? 100;
@@ -166,7 +165,7 @@ export async function deployPosition({
   const binsAboveBuffer = config.strategy.binsAboveBuffer ?? 0;
   const activeBinsAbove = (activeStrategy === "bid_ask" || isSolOnly)
     ? binsAboveBuffer  // empty buffer bins — no liquidity, but extends upper bound to delay OOR above trigger
-    : (bins_above != null ? bins_above : calcBinsFromTarget(estBinStep, targetUpside, true));
+    : (bins_above != null ? bins_above : 0);
 
   if (isPoolOnCooldown(pool_address)) {
     log("deploy", `Pool ${pool_address.slice(0, 8)} is on cooldown — skipping`);
@@ -264,7 +263,7 @@ export async function deployPosition({
   const finalBinsAboveBuffer = config.strategy.binsAboveBuffer ?? 0;
   const finalBinsAbove = (activeStrategy === "bid_ask" || (amount_x ?? 0) <= 0)
     ? finalBinsAboveBuffer  // empty buffer bins — extends upper bound without requiring token X
-    : (bins_above != null ? bins_above : calcBinsFromTarget(actualBinStep, targetUpside, true));
+    : (bins_above != null ? bins_above : 0);
 
   // Range calculation
   const minBinId = activeBin.binId - finalBinsBelow;

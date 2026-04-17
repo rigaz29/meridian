@@ -109,8 +109,7 @@ maxPriceVolatility: u.maxPriceVolatility ?? 50,   // max % price swing during po
     lpStrategyMode:      u.lpStrategyMode      ?? "auto",  // "bid_ask" | "spot" | "auto" | "fee_tvl"
     ftvlThreshold:       u.ftvlThreshold       ?? 1.2,   // fee_tvl mode: fee/tvl <= this → spot, > this → bid_ask (1.2 = backtest cutoff where bid_ask wins +1.59pp)
     targetDownsidePct: u.targetDownsidePct ?? 0.41,  // cover X% price drop below active bin (0.41→bs100≈53bins, bs80 capped@50, bs125 capped@35)
-    targetUpsidePct:   u.targetUpsidePct   ?? 0.20,  // cover X% price rise above active bin (spot only)
-    binsAboveBuffer:   u.binsAboveBuffer   ?? 10,    // fixed empty buffer bins above active bin for SOL-only/bid_ask (no liquidity, delays OOR-above trigger). 0 = disabled.
+binsAboveBuffer:   u.binsAboveBuffer   ?? 10,    // fixed empty buffer bins above active bin for SOL-only/bid_ask (no liquidity, delays OOR-above trigger). 0 = disabled.
   },
 
   // ─── Scheduling ─────────────────────────

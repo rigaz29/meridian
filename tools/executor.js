@@ -206,8 +206,7 @@ set_position_note: ({ position_address, instruction }) => {
       lpStrategyMode:      ["strategy", "lpStrategyMode"],
       ftvlThreshold:       ["strategy", "ftvlThreshold"],
       targetDownsidePct: ["strategy", "targetDownsidePct"],
-      targetUpsidePct:   ["strategy", "targetUpsidePct"],
-      binsAboveBuffer:   ["strategy", "binsAboveBuffer"],
+binsAboveBuffer:   ["strategy", "binsAboveBuffer"],
     };
 
     const applied = {};

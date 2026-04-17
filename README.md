@@ -468,7 +468,6 @@ All fields are optional — defaults shown. Edit `user-config.json`.
 | `ftvlThreshold` | `1.2` | Fee/TVL threshold for `fee_tvl` mode: ≤ threshold → spot, > threshold → bid_ask. Always measured at 1h timeframe regardless of screening timeframe. |
 | `binsBelow` | `69` | Bins below active bin (overrides volatility formula when set) |
 | `targetDownsidePct` | `0.41` | Cover X% price drop below active bin — calibrated to hit sweet spots from 270-position backtest: bs=100 → ~53 bins, bs=80 → capped at 50, bs=125 → capped at 35 |
-| `targetUpsidePct` | `0.20` | Cover X% price rise above active bin (spot/curve only) |
 | `binsAboveBuffer` | `10` | Fixed empty buffer bins above active bin for SOL-only/bid_ask positions. No liquidity placed there, but extends `maxBinId` upward so the OOR-above trigger is delayed. `0` = disabled. |
 
 #### Bins below — formula
