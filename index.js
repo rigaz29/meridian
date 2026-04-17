@@ -1076,11 +1076,10 @@ Summarize the current portfolio health, total fees earned, and performance of al
           trimmed.push({ ts: now, pnl_pct: p.pnl_pct });
           _pnlHistory.set(p.position, trimmed);
 
-          const velocityThreshold = config.management.pnlVelocitySLPct ?? 5;
-          // Scale threshold by volatility — high-vol tokens have larger normal swings.
-          // Cap at 1.5x: high-vol tokens that dump hard need tighter protection, not looser.
-          const posVol = getTrackedPosition(p.position)?.volatility ?? 1;
-          const effectiveVelocityThreshold = velocityThreshold * Math.min(1.5, Math.sqrt(Math.max(1, posVol)));
+          // Fixed threshold — no volatility scaling (vol data inconsistent across timeframes).
+          // 5% calibrated from 271-position history: all real freefalls were 7.26–11.55%,
+          // normal noise stdev is 2.86% — 5% sits cleanly between the two.
+          const effectiveVelocityThreshold = config.management.pnlVelocitySLPct ?? 5;
           const minAge = config.management.minAgeBeforeSL ?? 7;
           const windowStart = now - windowMs;
           const oldest = trimmed.find(h => h.ts >= windowStart);

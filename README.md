@@ -438,7 +438,7 @@ All fields are optional — defaults shown. Edit `user-config.json`.
 | `mintCooldownHours` | `24` | Token cooldown duration (hours) when the same token hits SL ≥ `oorCooldownTriggerCount` times within 48h — blocks all pools for that token |
 | `stopLossPct` | `-8` | Close if PnL drops below this % (with 15s confirmation to filter data glitches) |
 | `velocitySLEnabled` | `true` | Enable or disable velocity stop-loss entirely |
-| `pnlVelocitySLPct` | `2.5` | Close if PnL drops X% within the velocity window — catches freefalls before hitting `stopLossPct`. Scaled by volatility (cap 1.5×) so high-vol tokens get at most 3.75% threshold. |
+| `pnlVelocitySLPct` | `5` | Close if PnL drops X% within the velocity window — catches freefalls before hitting `stopLossPct`. Fixed threshold, no volatility scaling. Calibrated from 271-position history: real freefalls were 7–12%, normal noise stdev 2.86%. |
 | `pnlVelocityWindowSec` | `120` | Rolling window in seconds for velocity SL measurement |
 | `minAgeBeforeSL` | `7` | Minutes before any stop loss can trigger |
 | `oscillationExitEnabled` | `true` | Exit positions stuck in a narrow PnL band without a positive breakout — detects slow-bleed positions that neither velocity SL nor static SL would catch |
@@ -621,7 +621,7 @@ Meridian uses multiple layers of protection running in parallel. A lightweight P
 
 | Layer | Trigger | Confirmation | Mechanism |
 |---|---|---|---|
-| **Velocity SL** | PnL drops ≥ `pnlVelocitySLPct` (2.5%) within `pnlVelocityWindowSec` (120s); effective threshold scales with volatility up to 1.5× cap | None — direct close | In-memory history in 10–12s poller; catches freefalls before hitting absolute SL |
+| **Velocity SL** | PnL drops ≥ `pnlVelocitySLPct` (5%) within `pnlVelocityWindowSec` (120s) | None — direct close | In-memory history in 10–12s poller; catches freefalls before hitting absolute SL |
 | **Oscillation exit** | PnL stuck in narrow band (< `oscillationRangePct` 4%) for `oscillationWindowMin` (50m) with ≥ `oscillationMinReversals` (3) reversals, currently negative, peak never reached trailing trigger | None — direct close | Separate 2h history in poller; catches slow-bleed positions velocity SL misses |
 | **PnL SL** | `pnl_pct ≤ stopLossPct` (-8%) | 15s recheck — cancels if PnL recovers | Backstop for crashes not caught by velocity SL or oscillation exit |
 

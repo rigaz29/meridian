@@ -72,7 +72,7 @@ maxPriceVolatility: u.maxPriceVolatility ?? 50,   // max % price swing during po
     stopLossPct:           u.stopLossPct           ?? u.emergencyPriceDropPct ?? -20,
     minAgeBeforeSL:        u.minAgeBeforeSL        ?? 7,   // minutes before stop loss can trigger
     velocitySLEnabled:     u.velocitySLEnabled     ?? true, // enable/disable velocity stop-loss
-    pnlVelocitySLPct:      u.pnlVelocitySLPct      ?? 3,   // close if PnL drops X% within velocity window
+    pnlVelocitySLPct:      u.pnlVelocitySLPct      ?? 5,   // close if PnL drops X% within velocity window (5% calibrated from 271-pos history: real freefalls 7–12%, noise stdev 2.86%)
     pnlVelocityWindowSec:  u.pnlVelocityWindowSec  ?? 90,  // velocity measurement window in seconds
     oscillationExitEnabled:   u.oscillationExitEnabled   ?? true, // exit positions stuck in narrow PnL band
     oscillationMinAge:        u.oscillationMinAge        ?? 75,   // min age (min) before oscillation check
