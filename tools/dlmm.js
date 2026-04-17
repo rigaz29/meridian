@@ -153,7 +153,7 @@ export async function deployPosition({
   const targetDownside = isSpotLike
     ? Math.min(0.55, baseDownside + 0.04)   // spot: +4% more coverage than bid_ask
     : Math.min(0.55, baseDownside);
-  const targetUpside   = Math.min(0.35, 0.15 + (vol / 7) * 0.15);  // vol=0→15%, vol=3.5→22.5%, vol=7→30%
+  const targetUpside   = Math.min(0.35, config.strategy.targetUpsidePct ?? 0.20);  // spot/curve only — bins_above for token X deploy
 
   // Preliminary estimate using provided bin_step (used for DRY_RUN and wide-range check)
   const estBinStep = bin_step ?? 100;
