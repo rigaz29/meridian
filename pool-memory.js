@@ -226,6 +226,34 @@ export function isBaseMintOnCooldown(baseMint) {
   );
 }
 
+/**
+ * Set a short cooldown when a pool is blocked pre-deploy by the indicator hard filter.
+ * Prevents the same pool from looping in subsequent screening cycles.
+ * Creates a minimal pool-memory entry if one doesn't exist yet.
+ */
+export function setIndicatorBlockCooldown(poolAddress, poolName, hours, reason) {
+  if (!poolAddress) return;
+  const db = load();
+  if (!db[poolAddress]) {
+    db[poolAddress] = {
+      name: poolName || poolAddress.slice(0, 8),
+      base_mint: null,
+      deploys: [],
+      total_deploys: 0,
+      avg_pnl_pct: 0,
+      win_rate: 0,
+      adjusted_win_rate: 0,
+      adjusted_win_rate_sample_count: 0,
+      last_deployed_at: null,
+      last_outcome: null,
+      notes: [],
+    };
+  }
+  setPoolCooldown(db[poolAddress], hours, reason);
+  save(db);
+  log("pool-memory", `Indicator-block cooldown ${hours}h set for ${db[poolAddress].name} (${poolAddress.slice(0, 8)}): ${reason}`);
+}
+
 // ─── Read ──────────────────────────────────────────────────────
 
 /**
@@ -365,6 +393,7 @@ export function recallForPool(poolAddress) {
  * Compute a deterministic strategy recommendation for a pool before deploy.
  *
  * Priority order (highest wins):
+ *  0. lpStrategyMode forced ("bid_ask"|"spot"|"fee_tvl") → immediate return
  *  1. smart_money_buy signal         → bid_ask (hard override)
  *  2. Pool history: conflicting data → use whichever strategy has better avg PnL on this pool
  *  3. Volatility rule                → >= 3.0 = bid_ask; < 2.5 = consider spot
@@ -375,7 +404,7 @@ export function recallForPool(poolAddress) {
  * @param {string|null} poolAddress
  * @param {Object} signals
  * @param {boolean} [signals.smart_money_buy]
- * @param {number}  [signals.volatility]         0–10 scale
+ * @param {number}  [signals.volatility]         0–7 scale
  * @param {number}  [signals.fee_tvl_ratio]
  * @param {number}  [signals.price_change_pct]   % change over recent period
  * @returns {{ strategy: "bid_ask"|"spot", reason: string, confidence: "high"|"medium"|"low" }}
@@ -388,6 +417,31 @@ export function computeStrategyRecommendation(poolAddress, signals = {}) {
     price_change_pct: _price_change_pct = null,
   } = signals;
   const price_change_pct = _price_change_pct != null ? parseFloat(_price_change_pct) : null;
+
+  // Priority 0: respect explicit lpStrategyMode from config
+  const mode = config.strategy.lpStrategyMode ?? "auto";
+  if (mode === "bid_ask") {
+    return { strategy: "bid_ask", reason: "lpStrategyMode=bid_ask (forced)", confidence: "high" };
+  }
+  if (mode === "spot") {
+    return { strategy: "spot", reason: "lpStrategyMode=spot (forced)", confidence: "high" };
+  }
+  if (mode === "fee_tvl") {
+    const threshold = config.strategy.ftvlThreshold ?? 1.2;
+    if (fee_tvl_ratio <= threshold) {
+      return {
+        strategy: "spot",
+        reason: `lpStrategyMode=fee_tvl: fee_tvl_ratio ${fee_tvl_ratio.toFixed(2)} ≤ threshold ${threshold} → spot`,
+        confidence: "medium",
+      };
+    }
+    return {
+      strategy: "bid_ask",
+      reason: `lpStrategyMode=fee_tvl: fee_tvl_ratio ${fee_tvl_ratio.toFixed(2)} > threshold ${threshold} → bid_ask`,
+      confidence: "medium",
+    };
+  }
+  // mode === "auto" → fall through to signal-based priority chain below
 
   // Priority 1: smart money
   if (smart_money_buy) {

@@ -163,7 +163,7 @@ HARD RULES:
 
 Guidelines (only when user hasn't specified):
 - Strategy: choose bid_ask (momentum/directional) or spot (range-bound/fee farming) based on signals
-- Bins: auto-calculated from volatility (0–5 scale) — omit bins_below/bins_above unless overriding. Always pass volatility so range adapts correctly.
+- Bins: auto-calculated from volatility (0–7 scale) — omit bins_below/bins_above unless overriding. Always pass volatility so range adapts correctly.
 - Deposit: Can be single-sided (SOL only or Base only) or dual-sided.
 
 WARNING: This executes a real on-chain transaction. Check DRY_RUN mode.`,

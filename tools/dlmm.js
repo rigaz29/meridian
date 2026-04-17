@@ -147,9 +147,10 @@ export async function deployPosition({
   // Both strategies prioritise staying in range on the downside so price can bounce from demand zones.
   // bid_ask (SOL-only) uses a slightly lower base target than spot, but the same cap.
   const isSpotLike = activeStrategy === "spot" || activeStrategy === "curve";
+  const baseDownside = config.strategy.targetDownsidePct ?? 0.38;
   const targetDownside = isSpotLike
-    ? Math.min(0.55, 0.42 + (vol / 7) * 0.09)   // spot:    vol=0→42%, vol=3.5→46.5%, vol=7→51%, cap=55%
-    : Math.min(0.55, 0.38 + (vol / 7) * 0.09);   // bid_ask: vol=0→38%, vol=3.5→42.5%, vol=7→47%, cap=55%
+    ? Math.min(0.55, (baseDownside + 0.04) + (vol / 7) * 0.09)  // spot: base+4%, scales with vol
+    : Math.min(0.55, baseDownside + (vol / 7) * 0.09);           // bid_ask: base, scales with vol
   const targetUpside   = Math.min(0.35, 0.15 + (vol / 7) * 0.15);  // vol=0→15%, vol=3.5→22.5%, vol=7→30%
 
   // Preliminary estimate using provided bin_step (used for DRY_RUN and wide-range check)
@@ -211,13 +212,13 @@ export async function deployPosition({
   const formulaBinsBelow = Math.min(maxBinsBelow, calcBinsFromTarget(actualBinStep, targetDownside));
 
   // ── Support-based bins (hybrid) ────────────────────────────────
-  // Cascade timeframe: try 1h (50 candles) → 15m → 5m for new tokens with little history.
-  // Shorter timeframes apply stricter amplitude filter to suppress noise.
+  // Try all timeframes, collect all valid supports, pick the most validated one.
+  // Stricter amplitude filters on shorter timeframes to suppress noise.
   // Non-fatal: falls back to formula if all fetches fail or no valid swing found.
   //
-  // Timeframe config: { tf, lookbackMultiplier, minAmplitudePct, minSwings }
+  // Timeframe config: { tf, sec, candles, minAmplitudePct, minSwings }
   const SUPPORT_TIMEFRAMES = [
-    { tf: "1h",  sec: 3600, candles: 50, minAmp: 0.0, minSwings: 2 },
+    { tf: "1h",  sec: 3600, candles: 50, minAmp: 1.0, minSwings: 2 },
     { tf: "15m", sec: 900,  candles: 60, minAmp: 1.5, minSwings: 2 },
     { tf: "5m",  sec: 300,  candles: 60, minAmp: 3.0, minSwings: 3 },
   ];
@@ -227,6 +228,7 @@ export async function deployPosition({
   let supportLog = null;
   if (bins_below == null) {  // only when not manually overridden
     const now = Math.floor(Date.now() / 1000);
+    const allSupports = [];
     for (const { tf, sec, candles: nCandles, minAmp, minSwings } of SUPPORT_TIMEFRAMES) {
       try {
         const ohlcv = await fetchOHLCV(pool_address, {
@@ -237,13 +239,19 @@ export async function deployPosition({
         if (!Array.isArray(ohlcv) || ohlcv.length < 5) continue;
 
         const support = findNearestSupport(ohlcv, minSwings, minAmp);
-        if (!support) continue;
-
-        const targetPct = Math.min(support.distance_pct / 100 + BUFFER, 0.65);
-        supportBinsBelow = Math.min(maxBinsBelow, calcBinsFromTarget(actualBinStep, targetPct));
-        supportLog = `[${tf}] support at -${support.distance_pct}% (${support.swing_count} swings, amp≥${minAmp}%) → ${supportBinsBelow} bins`;
-        break;  // found a valid result, stop cascading
+        if (support) allSupports.push({ ...support, tf });
       } catch (_) { /* non-fatal, try next timeframe */ }
+    }
+
+    if (allSupports.length > 0) {
+      // Pick most validated support (highest swing_count). Tie-break: deepest distance.
+      const best = allSupports.reduce((a, b) => {
+        if (b.swing_count !== a.swing_count) return b.swing_count > a.swing_count ? b : a;
+        return b.distance_pct > a.distance_pct ? b : a;
+      });
+      const targetPct = Math.min(best.distance_pct / 100 + BUFFER, 0.65);
+      supportBinsBelow = Math.min(maxBinsBelow, calcBinsFromTarget(actualBinStep, targetPct));
+      supportLog = `[${best.tf}] support at -${best.distance_pct}% (${best.swing_count} swings, ${allSupports.length} tf checked) → ${supportBinsBelow} bins`;
     }
   }
 

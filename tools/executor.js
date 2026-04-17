@@ -13,7 +13,7 @@ import { getWalletBalances, swapToken } from "./wallet.js";
 import { addLesson, clearAllLessons, clearPerformance, removeLessonsByKeyword, getPerformanceHistory, pinLesson, unpinLesson, listLessons, bootstrapFromHistory } from "../lessons.js";
 import { setPositionInstruction, getTrackedPosition } from "../state.js";
 
-import { getPoolMemory, addPoolNote } from "../pool-memory.js";
+import { getPoolMemory, addPoolNote, setIndicatorBlockCooldown } from "../pool-memory.js";
 import { addStrategy, listStrategies, getStrategy, setActiveStrategy, removeStrategy } from "../strategy-library.js";
 import { addToBlacklist, removeFromBlacklist, listBlacklist } from "../token-blacklist.js";
 import { blockDev, unblockDev, listBlockedDevs } from "../dev-blocklist.js";
@@ -560,6 +560,7 @@ async function runSafetyChecks(name, args) {
               if (ema === "downtrend" && atr > 40) {
                 const reason = `Indicator filter: ATR=${atr}% > 40% with EMA downtrend — extreme volatility in a falling market. Historical win rate 50%, avg PnL -2.93%. Skip.`;
                 const poolName = args.pool_name || args.pool_address?.slice(0, 8);
+                setIndicatorBlockCooldown(args.pool_address, poolName, 1, `ATR=${atr}%+downtrend`);
                 if (telegramEnabled()) {
                   sendHTML(
                     `🚫 <b>Deploy blocked — ${poolName}</b>\n` +
@@ -573,6 +574,7 @@ async function runSafetyChecks(name, args) {
               if (ema === "downtrend" && vwap < -30) {
                 const reason = `Indicator filter: price ${vwap}% below VWAP with EMA downtrend — deep price weakness. Historical win rate 58%, avg PnL -1.21%. Skip.`;
                 const poolName = args.pool_name || args.pool_address?.slice(0, 8);
+                setIndicatorBlockCooldown(args.pool_address, poolName, 1, `VWAP=${vwap}%+downtrend`);
                 if (telegramEnabled()) {
                   sendHTML(
                     `🚫 <b>Deploy blocked — ${poolName}</b>\n` +
