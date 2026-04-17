@@ -29,6 +29,8 @@ const JUPITER_PRICE_API = "https://api.jup.ag/price/v3";
 const JUPITER_ULTRA_API = "https://api.jup.ag/ultra/v1";
 const JUPITER_QUOTE_API = "https://api.jup.ag/swap/v1";
 const JUPITER_API_KEY = process.env.JUPITER_API_KEY || "";
+const jupiterHeaders = (extra = {}) =>
+  JUPITER_API_KEY ? { "x-api-key": JUPITER_API_KEY, ...extra } : { ...extra };
 
 /**
  * Get current wallet balances: SOL, USDC, and all SPL tokens using Helius Wallet API.
@@ -158,7 +160,7 @@ export async function swapToken({
       `&taker=${wallet.publicKey.toString()}`;
 
     const orderRes = await fetch(orderUrl, {
-      headers: { "x-api-key": JUPITER_API_KEY },
+      headers: jupiterHeaders(),
     });
     if (!orderRes.ok) {
       const body = await orderRes.text();
@@ -185,10 +187,7 @@ export async function swapToken({
     // ─── Execute ───────────────────────────────────────────────
     const execRes = await fetch(`${JUPITER_ULTRA_API}/execute`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": JUPITER_API_KEY,
-      },
+      headers: jupiterHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({ signedTransaction: signedTx, requestId }),
     });
     if (!execRes.ok) {
@@ -220,7 +219,7 @@ async function swapViaQuoteApi({ wallet, connection, input_mint, output_mint, am
   // ─── Get quote ─────────────────────────────────────────────
   const quoteRes = await fetch(
     `${JUPITER_QUOTE_API}/quote?inputMint=${input_mint}&outputMint=${output_mint}&amount=${amountStr}&slippageBps=300`,
-    { headers: { "x-api-key": JUPITER_API_KEY } }
+    { headers: jupiterHeaders() }
   );
   if (!quoteRes.ok) throw new Error(`Quote failed: ${quoteRes.status} ${await quoteRes.text()}`);
   const quote = await quoteRes.json();
@@ -229,7 +228,7 @@ async function swapViaQuoteApi({ wallet, connection, input_mint, output_mint, am
   // ─── Get swap tx ───────────────────────────────────────────
   const swapRes = await fetch(`${JUPITER_QUOTE_API}/swap`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "x-api-key": JUPITER_API_KEY },
+    headers: jupiterHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({
       quoteResponse: quote,
       userPublicKey: wallet.publicKey.toString(),

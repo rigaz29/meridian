@@ -338,6 +338,11 @@ export function stopPolling() {
 }
 
 // ─── Notification helpers ────────────────────────────────────────
+function esc(s) {
+  if (s == null) return "";
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 function fmtPrice(n) {
   if (n == null) return "?";
   return n < 0.0001 ? n.toExponential(3) : n < 1 ? n.toFixed(6) : n.toFixed(4);
@@ -361,12 +366,12 @@ export async function notifyDeploy({ pair, amountSol, position, tx, priceRange, 
   let lines = [
     `🚀 <b>Position Deployed</b>`,
     ``,
-    `<b>${pair}</b>`,
+    `<b>${esc(pair)}</b>`,
     divider,
-    `💰 Amount: <b>${amountStr}</b>`,
+    `💰 Amount: <b>${esc(amountStr)}</b>`,
   ];
 
-  if (strategy) lines.push(`📊 Strategy: <b>${strategy}</b>`);
+  if (strategy) lines.push(`📊 Strategy: <b>${esc(strategy)}</b>`);
   if (binStep || baseFee != null)
     lines.push(`📐 Bin Step: <b>${binStep ?? "?"}</b>  |  Base Fee: <b>${baseFee != null ? baseFee + "%" : "?"}</b>`);
   if (priceRange)
@@ -390,7 +395,7 @@ export async function notifyClose({ pair, pnlUsd, pnlPct, feesUsd, initialValueU
   let lines = [
     `🔒 <b>Position Closed</b>`,
     ``,
-    `<b>${pair}</b>`,
+    `<b>${esc(pair)}</b>`,
     divider,
     `${pnlEmoji} PnL: <b>${sign}$${(pnlUsd ?? 0).toFixed(2)}</b>  (<b>${sign}${(pnlPct ?? 0).toFixed(2)}%</b>)`,
   ];
@@ -402,7 +407,7 @@ export async function notifyClose({ pair, pnlUsd, pnlPct, feesUsd, initialValueU
 
   const dur = fmtDuration(minutesHeld);
   if (dur) lines.push(`⏱ Duration: <b>${dur}</b>`);
-  if (closeReason) lines.push(`📋 Reason: <i>${closeReason}</i>`);
+  if (closeReason) lines.push(`📋 Reason: <i>${esc(closeReason)}</i>`);
 
   lines.push(divider);
   if (tx)
@@ -414,7 +419,7 @@ export async function notifyClose({ pair, pnlUsd, pnlPct, feesUsd, initialValueU
 export async function notifySwap({ inputSymbol, outputSymbol, amountIn, amountOut, tx }) {
   if (hasActiveLiveMessage()) return;
   await sendHTML(
-    `🔄 <b>Swapped</b> ${inputSymbol} → ${outputSymbol}\n` +
+    `🔄 <b>Swapped</b> ${esc(inputSymbol)} → ${esc(outputSymbol)}\n` +
     `In: ${amountIn ?? "?"} | Out: ${amountOut ?? "?"}\n` +
     `Tx: <code>${tx?.slice(0, 16)}...</code>`
   );
