@@ -338,31 +338,77 @@ export function stopPolling() {
 }
 
 // ─── Notification helpers ────────────────────────────────────────
-export async function notifyDeploy({ pair, amountSol, position, tx, priceRange, binStep, baseFee }) {
-  if (hasActiveLiveMessage()) return;
-  const priceStr = priceRange
-    ? `Price range: ${priceRange.min < 0.0001 ? priceRange.min.toExponential(3) : priceRange.min.toFixed(6)} – ${priceRange.max < 0.0001 ? priceRange.max.toExponential(3) : priceRange.max.toFixed(6)}\n`
-    : "";
-  const poolStr = (binStep || baseFee)
-    ? `Bin step: ${binStep ?? "?"}  |  Base fee: ${baseFee != null ? baseFee + "%" : "?"}\n`
-    : "";
-  await sendHTML(
-    `✅ <b>Deployed</b> ${pair}\n` +
-    `Amount: ${amountSol} SOL\n` +
-    priceStr +
-    poolStr +
-    `Position: <code>${position?.slice(0, 8)}...</code>\n` +
-    `Tx: <code>${tx?.slice(0, 16)}...</code>`
-  );
+function fmtPrice(n) {
+  if (n == null) return "?";
+  return n < 0.0001 ? n.toExponential(3) : n < 1 ? n.toFixed(6) : n.toFixed(4);
 }
 
-export async function notifyClose({ pair, pnlUsd, pnlPct }) {
+function fmtDuration(minutes) {
+  if (!minutes) return null;
+  const h = Math.floor(minutes / 60);
+  const m = Math.round(minutes % 60);
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
+export async function notifyDeploy({ pair, amountSol, position, tx, priceRange, binStep, baseFee, strategy, amountX }) {
   if (hasActiveLiveMessage()) return;
-  const sign = pnlUsd >= 0 ? "+" : "";
-  await sendHTML(
-    `🔒 <b>Closed</b> ${pair}\n` +
-    `PnL: ${sign}$${(pnlUsd ?? 0).toFixed(2)} (${sign}${(pnlPct ?? 0).toFixed(2)}%)`
-  );
+  const divider = "━━━━━━━━━━━━━━━━━";
+  const isTokenOnly = amountX > 0 && (!amountSol || amountSol === 0);
+  const amountStr = isTokenOnly
+    ? `${Number(amountX).toLocaleString("en-US", { maximumFractionDigits: 2 })} tokens`
+    : `${amountSol} SOL`;
+
+  let lines = [
+    `🚀 <b>Position Deployed</b>`,
+    ``,
+    `<b>${pair}</b>`,
+    divider,
+    `💰 Amount: <b>${amountStr}</b>`,
+  ];
+
+  if (strategy) lines.push(`📊 Strategy: <b>${strategy}</b>`);
+  if (binStep || baseFee != null)
+    lines.push(`📐 Bin Step: <b>${binStep ?? "?"}</b>  |  Base Fee: <b>${baseFee != null ? baseFee + "%" : "?"}</b>`);
+  if (priceRange)
+    lines.push(`📏 Range: <code>${fmtPrice(priceRange.min)} – ${fmtPrice(priceRange.max)}</code>`);
+
+  lines.push(divider);
+  if (position)
+    lines.push(`🔑 Position: <a href="https://solscan.io/account/${position}">${position.slice(0, 8)}…</a>`);
+  if (tx)
+    lines.push(`🔗 <a href="https://solscan.io/tx/${tx}">View Transaction</a>`);
+
+  await sendHTML(lines.join("\n"));
+}
+
+export async function notifyClose({ pair, pnlUsd, pnlPct, feesUsd, initialValueUsd, minutesHeld, closeReason, tx }) {
+  if (hasActiveLiveMessage()) return;
+  const sign = (pnlUsd ?? 0) >= 0 ? "+" : "";
+  const pnlEmoji = (pnlUsd ?? 0) >= 0 ? "📈" : "📉";
+  const divider = "━━━━━━━━━━━━━━━━━";
+
+  let lines = [
+    `🔒 <b>Position Closed</b>`,
+    ``,
+    `<b>${pair}</b>`,
+    divider,
+    `${pnlEmoji} PnL: <b>${sign}$${(pnlUsd ?? 0).toFixed(2)}</b>  (<b>${sign}${(pnlPct ?? 0).toFixed(2)}%</b>)`,
+  ];
+
+  if (feesUsd != null && feesUsd > 0)
+    lines.push(`💸 Fees Earned: <b>$${feesUsd.toFixed(2)}</b>`);
+  if (initialValueUsd != null && initialValueUsd > 0)
+    lines.push(`💼 Capital: <b>$${initialValueUsd.toFixed(2)}</b>`);
+
+  const dur = fmtDuration(minutesHeld);
+  if (dur) lines.push(`⏱ Duration: <b>${dur}</b>`);
+  if (closeReason) lines.push(`📋 Reason: <i>${closeReason}</i>`);
+
+  lines.push(divider);
+  if (tx)
+    lines.push(`🔗 <a href="https://solscan.io/tx/${tx}">View Transaction</a>`);
+
+  await sendHTML(lines.join("\n"));
 }
 
 export async function notifySwap({ inputSymbol, outputSymbol, amountIn, amountOut, tx }) {
