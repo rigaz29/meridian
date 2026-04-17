@@ -91,6 +91,9 @@ async function postTelegram(method, body) {
     });
     if (!res.ok) {
       const err = await res.text();
+      if (method === "editMessageText" && res.status === 400 && err.includes("message is not modified")) {
+        return null;
+      }
       log("telegram_error", `${method} ${res.status}: ${err.slice(0, 200)}`);
       return null;
     }

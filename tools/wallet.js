@@ -162,8 +162,8 @@ export async function swapToken({
     });
     if (!orderRes.ok) {
       const body = await orderRes.text();
-      if (orderRes.status === 500) {
-        log("swap", `Ultra failed for ${input_mint}, falling back to regular swap API`);
+      if (orderRes.status === 500 || orderRes.status === 401 || orderRes.status === 403) {
+        log("swap", `Ultra failed (${orderRes.status}) for ${input_mint}, falling back to regular swap API`);
         return await swapViaQuoteApi({ wallet, connection, input_mint, output_mint, amountStr });
       }
       throw new Error(`Ultra order failed: ${orderRes.status} ${body}`);
