@@ -399,12 +399,12 @@ All fields are optional — defaults shown. Edit `user-config.json`.
 |---|---|---|
 | `minFeeActiveTvlRatio` | `0.05` | Minimum fee/active-TVL ratio |
 | `minTvl` | `10000` | Minimum pool TVL (USD) |
-| `maxTvl` | `150000` | Maximum pool TVL (USD) |
+| `maxTvl` | `300000` | Maximum pool TVL (USD) |
 | `minVolume` | `500` | Minimum pool volume |
 | `minOrganic` | `60` | Minimum organic score (0–100) |
 | `minHolders` | `500` | Minimum token holder count |
 | `minMcap` | `150000` | Minimum market cap (USD) |
-| `maxMcap` | `10000000` | Maximum market cap (USD) |
+| `maxMcap` | `25000000` | Maximum market cap (USD) |
 | `minBinStep` | `80` | Minimum bin step |
 | `maxBinStep` | `125` | Maximum bin step |
 | `timeframe` | `5m` | Candle timeframe for screening |
@@ -437,20 +437,25 @@ All fields are optional — defaults shown. Edit `user-config.json`.
 | `oorCooldownTriggerCount` | `3` | SL closes within 48h before token-level cooldown triggers |
 | `oorCooldownHours` | `4` | Pool cooldown duration (hours) after a stop-loss close — prevents immediate re-entry into a crashing pool |
 | `mintCooldownHours` | `24` | Token cooldown duration (hours) when the same token hits SL ≥ `oorCooldownTriggerCount` times within 48h — blocks all pools for that token |
-| `stopLossPct` | `-20` | Close if PnL drops below this % (with 15s confirmation to filter data glitches) |
+| `stopLossPct` | `-8` | Close if PnL drops below this % (with 15s confirmation to filter data glitches) |
 | `velocitySLEnabled` | `true` | Enable or disable velocity stop-loss entirely |
-| `pnlVelocitySLPct` | `3` | Close if PnL drops X% within the velocity window — catches freefalls before hitting `stopLossPct` |
-| `pnlVelocityWindowSec` | `90` | Rolling window in seconds for velocity SL measurement |
+| `pnlVelocitySLPct` | `2.5` | Close if PnL drops X% within the velocity window — catches freefalls before hitting `stopLossPct`. Scaled by volatility (cap 1.5×) so high-vol tokens get at most 3.75% threshold. |
+| `pnlVelocityWindowSec` | `120` | Rolling window in seconds for velocity SL measurement |
 | `minAgeBeforeSL` | `7` | Minutes before any stop loss can trigger |
-| `takeProfitFeePct` | `5` | Close when unclaimed fees reach X% of position value |
+| `oscillationExitEnabled` | `true` | Exit positions stuck in a narrow PnL band without a positive breakout — detects slow-bleed positions that neither velocity SL nor static SL would catch |
+| `oscillationMinAge` | `75` | Minimum position age (minutes) before oscillation check runs |
+| `oscillationWindowMin` | `50` | History window (minutes) to analyse for oscillation pattern |
+| `oscillationRangePct` | `4.0` | Max PnL range (max−min) within window to classify as oscillation |
+| `oscillationMinReversals` | `3` | Minimum direction changes within window (filtered at 0.3% noise threshold) |
+| `takeProfitFeePct` | `15` | Close when unclaimed fees reach X% of position value — acts as ceiling; trailing TP handles most exits before this |
 | `trailingTakeProfit` | `true` | Enable trailing take-profit |
 | `trailingTriggerPct` | `3` | Activate trailing at X% PnL |
-| `trailingDropPct` | `1.5` | Base drop threshold — actual threshold is dynamic based on peak: peak <5% → 1.0%, peak 5–10% → this value, peak >10% → max(this, 2.0%) |
+| `trailingDropPct` | `1.5` | Base drop threshold — actual threshold is dynamic based on peak: peak <5% → cap at 1.5×volScale (entry zone buffer), peak 5–10% → this value × volScale, peak >10% → max(this, 2.0) × volScale |
 | `autoClaimPct` | `5` | Auto-claim when unclaimed fees ≥ X% of position value |
 | `autoSwapAfterClaim` | `false` | Swap base token to SOL after claiming |
 | `solMode` | `false` | Report positions and PnL in SOL instead of USD |
 | `minFeePerTvl24h` | `7` | Minimum fee yield % per 24h before yield check can trigger close |
-| `minAgeBeforeYieldCheck` | `90` | Minutes before low yield can trigger close |
+| `minAgeBeforeYieldCheck` | `60` | Minutes before low yield can trigger close |
 | `minFeesEarnedForYieldExit` | `0.20` | Minimum unclaimed fees (USD) before low yield close can trigger |
 | `llmConfirmExit` | `false` | Ask LLM to confirm or veto Rules 2–5 exits before executing. Adds ~1–3s per position. Uses fee velocity and pool memory as context. Default off — opt in when you want the LLM to have a say over hardcoded exits. |
 | `llmConfirmRules` | `[2,3,4,"4b",5]` | Which rule numbers require LLM confirmation when `llmConfirmExit=true`. Remove rules you want to stay fully deterministic. |
@@ -473,29 +478,29 @@ When `binsBelow` is not set, the number of bins below the active bin is auto-cal
 
 Both strategies share the same cap (safety over density) — bid_ask uses a slightly lower base target but can extend just as wide:
 
-**bid_ask**:
+**bid_ask** (base = `targetDownsidePct`, default 0.38):
 ```
-targetDownside = min(0.55, 0.38 + (vol / 5) × 0.09)
+targetDownside = min(0.55, targetDownsidePct + (vol / 7) × 0.09)
 bins_below     = min(cap, calcBinsFromTarget(binStep, targetDownside))
 ```
 
 | Volatility | Target downside | bs=80 bins | bs=100 bins | bs=125 bins |
 |---|---|---|---|---|
 | 0 | 38% | 52 | 49 | 34 |
-| 2.5 | 42.5% | 59 | 56 | 38 |
-| 5 | 47% | 67 | 64 | 41 (cap) |
+| 3.5 | 42.5% | 59 | 56 | 38 |
+| 7 | 47% | 67 | 64 | 41 (cap) |
 
-**spot / curve** (slightly wider — data shows 95.2% range efficiency at >50 bins vs 80.6% at 46–50):
+**spot / curve** (base = `targetDownsidePct + 4%`, default 0.42):
 ```
-targetDownside = min(0.55, 0.42 + (vol / 5) × 0.09)
+targetDownside = min(0.55, targetDownsidePct + 0.04 + (vol / 7) × 0.09)
 bins_below     = min(cap, calcBinsFromTarget(binStep, targetDownside))
 ```
 
 | Volatility | Target downside | bs=80 bins | bs=100 bins | bs=125 bins |
 |---|---|---|---|---|
 | 0 | 42% | 58 | 55 | 37 |
-| 2.5 | 46.5% | 67 | 63 | 40 |
-| 5 | 51% | 70 (cap) | 69 | 42 (cap) |
+| 3.5 | 46.5% | 67 | 63 | 40 |
+| 7 | 51% | 70 (cap) | 69 | 42 (cap) |
 
 Caps (both strategies): `bs ≥ 125` → 42, `bs < 125` → 70.
 
@@ -507,15 +512,15 @@ In addition to the volatility formula, Meridian attempts to detect the nearest d
 finalBinsBelow = max(formulaBinsBelow, supportBinsBelow)
 ```
 
-Support detection uses a **cascade** of timeframes to handle both mature and new tokens:
+Support detection tries **all three timeframes** and picks the most validated result:
 
 | Timeframe | Candles | Min amplitude | Min swings | Notes |
 |---|---|---|---|---|
-| `1h` | 50 | 0% | 2 | Tried first — clearest structural levels |
-| `15m` | 60 | 1.5% | 2 | Fallback — amplitude filter avoids micro-noise |
-| `5m` | 60 | 3.0% | 3 | Last resort for new tokens — stricter quality gates |
+| `1h` | 50 | 1.0% | 2 | Clearest structural levels — noise filtered at 1% |
+| `15m` | 60 | 1.5% | 2 | Finer detail — useful for newer tokens |
+| `5m` | 60 | 3.0% | 3 | Short-term structure — stricter quality gates |
 
-Once a valid support is found on any timeframe, the cascade stops. Support distance + a 5% buffer sets the target:
+All timeframes are attempted in parallel. The support with the **highest swing count** is selected (tie-break: deepest distance). Support distance + a 5% buffer sets the target:
 
 ```
 targetPct      = min(support.distance_pct / 100 + 0.05, 0.65)
@@ -632,17 +637,18 @@ Meridian uses multiple layers of protection running in parallel. A lightweight P
 
 | Layer | Trigger | Confirmation | Mechanism |
 |---|---|---|---|
-| **Velocity SL** | PnL drops ≥ `pnlVelocitySLPct` (3%) within `pnlVelocityWindowSec` (90s) | None — direct close | In-memory history in 10–12s poller; catches freefalls before hitting absolute SL |
-| **PnL SL** | `pnl_pct ≤ stopLossPct` (-20%) | 15s recheck — cancels if PnL recovers | Catches slow bleed that velocity SL misses |
+| **Velocity SL** | PnL drops ≥ `pnlVelocitySLPct` (2.5%) within `pnlVelocityWindowSec` (120s); effective threshold scales with volatility up to 1.5× cap | None — direct close | In-memory history in 10–12s poller; catches freefalls before hitting absolute SL |
+| **Oscillation exit** | PnL stuck in narrow band (< `oscillationRangePct` 4%) for `oscillationWindowMin` (50m) with ≥ `oscillationMinReversals` (3) reversals, currently negative, peak never reached trailing trigger | None — direct close | Separate 2h history in poller; catches slow-bleed positions velocity SL misses |
+| **PnL SL** | `pnl_pct ≤ stopLossPct` (-8%) | 15s recheck — cancels if PnL recovers | Backstop for crashes not caught by velocity SL or oscillation exit |
 
-All stop losses respect `minAgeBeforeSL` (7 min) to avoid false triggers on fresh positions where PnL data may be unstable.
+All stop losses respect `minAgeBeforeSL` (7 min) to avoid false triggers on fresh positions where PnL data may be unstable. Oscillation exit additionally requires `oscillationMinAge` (75 min).
 
 ### Take-profit layers
 
 | Layer | Trigger | Notes |
 |---|---|---|
-| **Trailing TP** | PnL activates at `trailingTriggerPct` (3%), closes when drops from confirmed peak | Drop threshold is dynamic: peak <5% → 1.0%, peak 5–10% → `trailingDropPct` (1.5%), peak >10% → 2.0%. Suppresses static TP once active. |
-| **Static TP** | `unclaimed fees ≥ takeProfitFeePct` (5%) of position value | Acts as ceiling before trailing activates |
+| **Trailing TP** | PnL activates at `trailingTriggerPct` (3%), closes when drops from confirmed peak | Drop threshold is dynamic: peak <5% → cap at 1.5×volScale (entry-zone buffer), peak 5–10% → `trailingDropPct` (1.5%) × volScale, peak >10% → max(1.5, 2.0) × volScale. Suppresses static TP once active. |
+| **Static TP** | `unclaimed fees ≥ takeProfitFeePct` (15%) of position value | Emergency ceiling before trailing activates |
 
 ### OOR exits
 

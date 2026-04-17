@@ -75,6 +75,11 @@ export const config = {
     velocitySLEnabled:     u.velocitySLEnabled     ?? true, // enable/disable velocity stop-loss
     pnlVelocitySLPct:      u.pnlVelocitySLPct      ?? 3,   // close if PnL drops X% within velocity window
     pnlVelocityWindowSec:  u.pnlVelocityWindowSec  ?? 90,  // velocity measurement window in seconds
+    oscillationExitEnabled:   u.oscillationExitEnabled   ?? true, // exit positions stuck in narrow PnL band
+    oscillationMinAge:        u.oscillationMinAge        ?? 75,   // min age (min) before oscillation check
+    oscillationWindowMin:     u.oscillationWindowMin     ?? 50,   // history window to analyze (min)
+    oscillationRangePct:      u.oscillationRangePct      ?? 4.0,  // max PnL range to qualify as oscillation
+    oscillationMinReversals:  u.oscillationMinReversals  ?? 3,    // min direction changes in window
     takeProfitFeePct:      u.takeProfitFeePct      ?? 5,
     minFeePerTvl24h:       u.minFeePerTvl24h       ?? 7,
     minAgeBeforeYieldCheck:    u.minAgeBeforeYieldCheck    ?? 60,   // minutes before low yield can trigger close

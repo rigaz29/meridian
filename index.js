@@ -61,7 +61,7 @@ const DEPLOY = config.management.deployAmountSol;
  * Tighter at low peaks (lock in small gains quickly),
  * wider at high peaks (give room for big pumps to continue).
  *
- * Peak 3–5%  → 1.0%  (quick lock-in, don't let small gain evaporate)
+ * Peak 3–5%  → 1.5×  (entry zone — enough room to avoid DLMM fee fluctuation noise)
  * Peak 5–10% → base  (standard)
  * Peak >10%  → max(base, 2.0)  (let big winners run longer)
  *
@@ -77,7 +77,49 @@ export function dynamicTrailingDropPct(peakPnlPct, volatility) {
   if (peakPnlPct == null) return parseFloat(base.toFixed(2));
   if (peakPnlPct >= 10) return parseFloat(Math.max(base, 2.0 * volScale).toFixed(2));
   if (peakPnlPct >= 5)  return parseFloat(base.toFixed(2));
-  return parseFloat(Math.min(base, 1.0 * volScale).toFixed(2));
+  return parseFloat(Math.min(base, 1.5 * volScale).toFixed(2));
+}
+
+/**
+ * Detect oscillation: PnL stuck in a narrow band for an extended period without a positive breakout.
+ * Guards: position must be old enough, currently negative, and peak must never have reached the
+ * trailing trigger (if it did, trailing TP is responsible for the exit).
+ */
+function detectOscillation(positionAddress, currentPnl, ageMinutes, history, mgmtConfig) {
+  const minAge       = mgmtConfig.oscillationMinAge       ?? 75;
+  const windowMin    = mgmtConfig.oscillationWindowMin    ?? 50;
+  const maxRange     = mgmtConfig.oscillationRangePct     ?? 4.0;
+  const minReversals = mgmtConfig.oscillationMinReversals ?? 3;
+  const maxPeak      = mgmtConfig.trailingTriggerPct      ?? 3; // trailing handles exits above this
+
+  if (ageMinutes < minAge) return null;
+  if (currentPnl >= 0) return null; // only exit when currently negative
+
+  const allTimePeak = history.length > 0 ? Math.max(...history.map(h => h.pnl_pct)) : currentPnl;
+  if (allTimePeak >= maxPeak) return null; // trailing TP is responsible
+
+  const now = Date.now();
+  const windowData = history.filter(h => now - h.ts <= windowMin * 60 * 1000);
+  if (windowData.length < 15) return null; // not enough data points
+
+  const pnls = windowData.map(h => h.pnl_pct);
+  const minPnl = Math.min(...pnls);
+  const maxPnl = Math.max(...pnls);
+  if (maxPnl - minPnl > maxRange) return null; // too wide — volatile, not oscillating
+
+  // Count significant direction reversals (ignore noise < 0.3%)
+  let reversals = 0;
+  let lastDir = 0;
+  for (let i = 1; i < pnls.length; i++) {
+    const delta = pnls[i] - pnls[i - 1];
+    if (Math.abs(delta) < 0.3) continue;
+    const dir = delta > 0 ? 1 : -1;
+    if (lastDir !== 0 && dir !== lastDir) reversals++;
+    lastDir = dir;
+  }
+  if (reversals < minReversals) return null;
+
+  return `Oscillation exit: PnL stuck [${minPnl.toFixed(2)}%, ${maxPnl.toFixed(2)}%] over ${windowMin}m with ${reversals} reversals (peak ${allTimePeak.toFixed(2)}% never reached ${maxPeak}%)`;
 }
 
 // ═══════════════════════════════════════════
@@ -119,6 +161,8 @@ const _peakConfirmTimers = new Map();
 const _trailingDropConfirmTimers = new Map();
 const _stopLossConfirmTimers = new Map();
 const _pnlHistory = new Map(); // positionAddress → [{ts, pnl_pct}] — for velocity SL
+const _oscillationHistory = new Map(); // positionAddress → [{ts, pnl_pct}] — for oscillation exit
+const OSCILLATION_HISTORY_MS = 2 * 60 * 60 * 1000; // retain 2h of data
 let _pnlPollTimeout = null; // module-level so stopCronJobs() can always clear the latest timer
 const _closingPositions = new Set(); // mutex — prevents concurrent close attempts on same position
 const TRAILING_PEAK_CONFIRM_DELAY_MS = 15_000;
@@ -1034,6 +1078,9 @@ Summarize the current portfolio health, total fees earned, and performance of al
       for (const addr of _pnlHistory.keys()) {
         if (!_activePositionSet.has(addr)) _pnlHistory.delete(addr);
       }
+      for (const addr of _oscillationHistory.keys()) {
+        if (!_activePositionSet.has(addr)) _oscillationHistory.delete(addr);
+      }
 
       for (const p of result.positions) {
         // ── Velocity SL: detect rapid PnL freefall ─────────────────────
@@ -1047,10 +1094,9 @@ Summarize the current portfolio health, total fees earned, and performance of al
 
           const velocityThreshold = config.management.pnlVelocitySLPct ?? 5;
           // Scale threshold by volatility — high-vol tokens have larger normal swings.
-          // Same pattern as outOfRangeWait scaling (sqrt), but inverse: high vol → higher threshold.
-          // Cap at 2x so even vol=9 tokens can't ignore a 10%+ freefall.
+          // Cap at 1.5x: high-vol tokens that dump hard need tighter protection, not looser.
           const posVol = getTrackedPosition(p.position)?.volatility ?? 1;
-          const effectiveVelocityThreshold = velocityThreshold * Math.min(2, Math.sqrt(Math.max(1, posVol)));
+          const effectiveVelocityThreshold = velocityThreshold * Math.min(1.5, Math.sqrt(Math.max(1, posVol)));
           const minAge = config.management.minAgeBeforeSL ?? 7;
           const windowStart = now - windowMs;
           const oldest = trimmed.find(h => h.ts >= windowStart);
@@ -1096,6 +1142,54 @@ Summarize the current portfolio health, total fees earned, and performance of al
               }
               continue;
             }
+          }
+        }
+
+        // ── Oscillation exit: stuck in narrow PnL band without breakout ────
+        if ((config.management.oscillationExitEnabled !== false) && !p.pnl_pct_suspicious && p.pnl_pct != null) {
+          const now = Date.now();
+          const oscHist = _oscillationHistory.get(p.position) || [];
+          oscHist.push({ ts: now, pnl_pct: p.pnl_pct });
+          _oscillationHistory.set(p.position, oscHist.filter(h => now - h.ts < OSCILLATION_HISTORY_MS));
+
+          const oscReason = detectOscillation(p.position, p.pnl_pct, p.age_minutes ?? 0, _oscillationHistory.get(p.position), config.management);
+          if (oscReason && !_closingPositions.has(p.position)) {
+            log("state", `[Oscillation] ${p.pair}: ${oscReason}`);
+            _oscillationHistory.delete(p.position);
+            _pnlHistory.delete(p.position);
+            _closingPositions.add(p.position);
+            try {
+              const closeResult = await closePosition({ position_address: p.position, reason: oscReason });
+              log("state", `[Oscillation] Close succeeded for ${p.position}`);
+              if (closeResult?.success && telegramEnabled()) {
+                const _tr = getTrackedPosition(p.position);
+                notifyClose({
+                  pair:            closeResult.pool_name || p.pair,
+                  pnlUsd:          closeResult.pnl_usd          ?? 0,
+                  pnlPct:          closeResult.pnl_pct          ?? 0,
+                  feesEarned:      closeResult.fees_earned_usd,
+                  reason:          oscReason,
+                  rangeEfficiency: closeResult.range_efficiency,
+                  ageMinutes:      closeResult.age_minutes,
+                  deploySol:       closeResult.deploy_sol,
+                  depositedUsd:    closeResult.deposited_usd,
+                  withdrawnUsd:    closeResult.withdrawn_usd,
+                  positionAddress: p.position,
+                  strategy:        _tr?.strategy   ?? null,
+                  binStep:         _tr?.bin_step   ?? null,
+                  volatility:      _tr?.volatility ?? null,
+                }).catch(() => {});
+              }
+              if (closeResult?.base_mint) {
+                autoSwapBaseToken(closeResult.base_mint, "Oscillation exit").catch(() => {});
+              }
+            } catch (closeErr) {
+              log("cron_error", `[Oscillation] Direct close failed for ${p.position}: ${closeErr.message} — triggering management`);
+              runManagementCycle({ silent: true }).catch((e) => log("cron_error", `Oscillation exit management failed: ${e.message}`));
+            } finally {
+              _closingPositions.delete(p.position);
+            }
+            continue;
           }
         }
 

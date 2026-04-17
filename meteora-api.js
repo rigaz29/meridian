@@ -37,6 +37,12 @@ async function fetchWithRetry(url, retries = MAX_RETRIES) {
         continue;
       }
 
+      // 4xx (except 429) = client error — no point retrying
+      if (res.status >= 400 && res.status < 500) {
+        log("meteora_api_warn", `HTTP ${res.status} for ${url} — skipping retries`);
+        return null;
+      }
+
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}: ${res.statusText}`);
       }
