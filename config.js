@@ -48,6 +48,7 @@ export const config = {
     maxTokenAgeHours:   u.maxTokenAgeHours   ?? null, // null = no maximum
     athFilterPct:       u.athFilterPct       ?? null, // e.g. -20 = only deploy if price is >= 20% below ATH
     maxPriceVolatility: u.maxPriceVolatility ?? 50,   // max % price swing during position (auto-evolved)
+    maxVolatility:      u.maxVolatility      ?? 5,    // max pool volatility score (0-5 scale, auto-evolved)
   },
 
   // ─── Position Management ────────────────
@@ -75,6 +76,10 @@ export const config = {
     pnlSanityMaxDiffPct:   u.pnlSanityMaxDiffPct   ?? 5,    // max allowed diff between reported and derived pnl % before ignoring a tick
     // SOL mode — positions, PnL, and balances reported in SOL instead of USD
     solMode:               u.solMode               ?? false,
+    // Two-phase exit confirmation tolerances (configurable, were previously hardcoded)
+    trailingPeakConfirmTolerance:    u.trailingPeakConfirmTolerance    ?? 0.85, // recheck must be >= X of candidate peak
+    trailingDropConfirmTolerancePct: u.trailingDropConfirmTolerancePct ?? 0.3,  // ± tolerance for trailing drop recheck
+    stopLossConfirmTolerancePct:     u.stopLossConfirmTolerancePct     ?? 0.5,  // ± tolerance for SL recheck
   },
 
   // ─── Strategy Mapping ───────────────────
@@ -160,6 +165,7 @@ export function reloadScreeningThresholds() {
     if (fresh.maxBundlePct      != null) s.maxBundlePct     = fresh.maxBundlePct;
     if (fresh.maxBotHoldersPct  != null) s.maxBotHoldersPct = fresh.maxBotHoldersPct;
     if (fresh.maxPriceVolatility != null) s.maxPriceVolatility = fresh.maxPriceVolatility;
+    if (fresh.maxVolatility      != null) s.maxVolatility      = fresh.maxVolatility;
   } catch (err) {
     log("config_error", `Failed to reload screening thresholds: ${err.message}`);
   }

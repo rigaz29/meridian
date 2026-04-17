@@ -161,6 +161,8 @@ export async function deployPosition({
 
   const { StrategyType } = await getDLMM();
   const wallet = getWallet();
+  // Force-refresh pool cache before deploy — active bin may have moved since last cache fill
+  poolCache.delete(pool_address.toString());
   const pool = await getPool(pool_address);
   const baseMint = pool.lbPair.tokenXMint.toString();
   if (isBaseMintOnCooldown(baseMint)) {

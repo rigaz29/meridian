@@ -4,7 +4,7 @@ import { buildSystemPrompt } from "./prompt.js";
 import { executeTool } from "./tools/executor.js";
 import { tools } from "./tools/definitions.js";
 
-const MANAGER_TOOLS  = new Set(["close_position", "claim_fees", "swap_token", "get_position_pnl", "get_my_positions", "get_wallet_balance"]);
+const MANAGER_TOOLS  = new Set(["close_position", "claim_fees", "swap_token", "get_position_pnl", "get_my_positions", "get_wallet_balance", "get_wallet_positions", "set_position_note"]);
 const SCREENER_TOOLS = new Set(["deploy_position", "get_active_bin", "get_top_candidates", "check_pool_eligibility", "check_smart_wallets_on_pool", "get_token_holders", "get_token_narrative", "get_token_info", "search_pools", "get_pool_memory", "get_wallet_balance", "get_my_positions"]);
 const GENERAL_INTENT_ONLY_TOOLS = new Set([
   "self_update",
@@ -236,15 +236,15 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
               try {
                 const repaired = JSON.stringify(JSON.parse(jsonrepair(tc.function.arguments)));
                 if (repaired.length > 100_000) {
-                  tc.function.arguments = "{}";
-                  log("error", `Repaired JSON too large for ${tc.function.name} (${repaired.length} bytes) — cleared to {}`);
+                  log("error", `Repaired JSON too large for ${tc.function.name} (${repaired.length} bytes) — returning parse error`);
+                  tc.function.arguments = JSON.stringify({ _parse_error: `Arguments too large after repair (${repaired.length} bytes). Retry with smaller input.` });
                 } else {
                   tc.function.arguments = repaired;
+                  log("warn", `Repaired malformed JSON args for ${tc.function.name}`);
                 }
-                log("warn", `Repaired malformed JSON args for ${tc.function.name}`);
               } catch {
-                tc.function.arguments = "{}";
-                log("error", `Could not repair JSON args for ${tc.function.name} — cleared to {}`);
+                log("error", `Could not repair JSON args for ${tc.function.name} — returning parse error to model`);
+                tc.function.arguments = JSON.stringify({ _parse_error: "Failed to parse tool arguments. Retry with valid JSON." });
               }
             }
           }
