@@ -144,6 +144,12 @@ export async function getTopCandidates({ limit = 10 } = {}) {
         pushFilteredReason(filteredOut, p, "token cooldown active");
         return false;
       }
+      const maxVol = config.screening.maxVolatility;
+      if (maxVol != null && p.volatility != null && p.volatility > maxVol) {
+        log("screening", `Filtered high-volatility pool ${p.name} (${p.volatility} > ${maxVol})`);
+        pushFilteredReason(filteredOut, p, `volatility ${p.volatility} exceeds max ${maxVol}`);
+        return false;
+      }
       return true;
     })
     .slice(0, limit);
@@ -346,6 +352,13 @@ export async function checkPoolEligibility({ pool_address, timeframe = "1h" }) {
 
   check("organic_score", organicScore >= s.minOrganic,
     organicScore, `≥${s.minOrganic}`);
+
+  if (s.maxVolatility != null) {
+    const vol = pool.volatility ?? null;
+    check("max_volatility", vol == null || vol <= s.maxVolatility,
+      vol, `≤${s.maxVolatility}`,
+      vol != null && vol > s.maxVolatility ? `Volatility ${vol} exceeds max ${s.maxVolatility}` : null);
+  }
 
   if (s.minTokenAgeHours != null) {
     check("token_age_min", tokenAgeHours != null && tokenAgeHours >= s.minTokenAgeHours,
