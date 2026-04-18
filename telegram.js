@@ -356,7 +356,6 @@ function fmtDuration(minutes) {
 }
 
 export async function notifyDeploy({ pair, amountSol, position, tx, priceRange, binStep, baseFee, strategy, amountX }) {
-  if (hasActiveLiveMessage()) return;
   const divider = "━━━━━━━━━━━━━━━━━";
   const isTokenOnly = amountX > 0 && (!amountSol || amountSol === 0);
   const amountStr = isTokenOnly
@@ -387,7 +386,6 @@ export async function notifyDeploy({ pair, amountSol, position, tx, priceRange, 
 }
 
 export async function notifyClose({ pair, pnlUsd, pnlPct, feesUsd, initialValueUsd, minutesHeld, closeReason, tx }) {
-  if (hasActiveLiveMessage()) return;
   const sign = (pnlUsd ?? 0) >= 0 ? "+" : "";
   const pnlEmoji = (pnlUsd ?? 0) >= 0 ? "📈" : "📉";
   const divider = "━━━━━━━━━━━━━━━━━";

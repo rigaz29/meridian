@@ -9,7 +9,7 @@ import { getTopCandidates } from "./tools/screening.js";
 import { config, reloadScreeningThresholds, computeDeployAmount } from "./config.js";
 import { evolveThresholds, getPerformanceSummary, bootstrapFromHistory } from "./lessons.js";
 import { registerCronRestarter } from "./tools/executor.js";
-import { startPolling, stopPolling, sendMessage, sendHTML, notifyOutOfRange, isEnabled as telegramEnabled, createLiveMessage } from "./telegram.js";
+import { startPolling, stopPolling, sendMessage, sendHTML, notifyOutOfRange, notifyClose, isEnabled as telegramEnabled, createLiveMessage } from "./telegram.js";
 import { generateBriefing } from "./briefing.js";
 import { getLastBriefingDate, setLastBriefingDate, getTrackedPosition, setPositionInstruction, updatePnlAndCheckExits, queuePeakConfirmation, resolvePendingPeak, queueTrailingDropConfirmation, resolvePendingTrailingDrop, queueStopLossConfirmation, resolvePendingStopLoss, markOORDownside, clearOORDownside, minutesOORDownside } from "./state.js";
 import { getActiveStrategy } from "./strategy-library.js";
@@ -117,7 +117,8 @@ function scheduleTrailingDropConfirmation(positionAddress) {
       if (resolved?.confirmed) {
         log("state", `[Trailing recheck] Confirmed trailing exit for ${positionAddress} — closing directly`);
         try {
-          await closePosition({ position_address: positionAddress, reason: resolved.reason });
+          const closeResult = await closePosition({ position_address: positionAddress, reason: resolved.reason });
+          if (closeResult?.success) notifyClose({ pair: closeResult.pool_name || positionAddress.slice(0, 8), pnlUsd: closeResult.pnl_usd, pnlPct: closeResult.pnl_pct, feesUsd: closeResult.fees_usd, initialValueUsd: closeResult.initial_value_usd, minutesHeld: closeResult.minutes_held, closeReason: closeResult.close_reason, tx: closeResult.close_txs?.[0] ?? closeResult.txs?.[0] }).catch(() => {});
           log("state", `[Trailing TP] Direct close succeeded for ${positionAddress}`);
         } catch (closeErr) {
           log("cron_error", `[Trailing TP] Direct close failed for ${positionAddress}: ${closeErr.message} — falling back to management cycle`);
@@ -149,7 +150,8 @@ function scheduleStopLossConfirmation(positionAddress) {
       if (resolved?.confirmed) {
         log("state", `[SL recheck] Confirmed stop loss for ${positionAddress} — closing directly`);
         try {
-          await closePosition({ position_address: positionAddress, reason: resolved.reason });
+          const closeResult = await closePosition({ position_address: positionAddress, reason: resolved.reason });
+          if (closeResult?.success) notifyClose({ pair: closeResult.pool_name || positionAddress.slice(0, 8), pnlUsd: closeResult.pnl_usd, pnlPct: closeResult.pnl_pct, feesUsd: closeResult.fees_usd, initialValueUsd: closeResult.initial_value_usd, minutesHeld: closeResult.minutes_held, closeReason: closeResult.close_reason, tx: closeResult.close_txs?.[0] ?? closeResult.txs?.[0] }).catch(() => {});
           log("state", `[Stop Loss] Direct close succeeded for ${positionAddress}`);
         } catch (closeErr) {
           log("cron_error", `[Stop Loss] Direct close failed for ${positionAddress}: ${closeErr.message} — falling back to management cycle`);
@@ -733,6 +735,7 @@ Summarize the current portfolio health, total fees earned, and performance of al
           if (minsDown >= config.management.oorDownsideWaitMinutes) {
             log("state", `[PnL poll] OOR downside ${minsDown}m for ${p.pair} — closing directly to limit IL`);
             closePosition({ position_address: p.position, reason: `OOR downside ${minsDown}m — price below lower bin, IL stop loss` })
+              .then(r => { if (r?.success) notifyClose({ pair: r.pool_name || p.pair, pnlUsd: r.pnl_usd, pnlPct: r.pnl_pct, feesUsd: r.fees_usd, initialValueUsd: r.initial_value_usd, minutesHeld: r.minutes_held, closeReason: r.close_reason, tx: r.close_txs?.[0] ?? r.txs?.[0] }).catch(() => {}); })
               .catch(e => {
                 log("cron_error", `[OOR downside] Direct close failed for ${p.position}: ${e.message} — falling back to management`);
                 runManagementCycle({ silent: true }).catch(() => {});
