@@ -819,6 +819,7 @@ export async function closePosition({ position_address, reason }) {
     try { await getMyPositions({ force: true, silent: true }); } catch (_) {}
   }
 
+  let _baseMint = null; // hoisted so outer catch can include it if close txs were sent
   try {
     log("close", `Closing position: ${position_address}`);
     const wallet = getWallet();
@@ -826,6 +827,7 @@ export async function closePosition({ position_address, reason }) {
     // Clear cached pool so SDK loads fresh position fee state
     poolCache.delete(poolAddress.toString());
     const pool = await getPool(poolAddress);
+    _baseMint = pool.lbPair.tokenXMint.toString();
 
     const positionPubKey = new PublicKey(position_address);
     const claimTxHashes = [];
@@ -1067,7 +1069,7 @@ export async function closePosition({ position_address, reason }) {
     };
   } catch (error) {
     log("close_error", error.message);
-    return { success: false, error: error.message };
+    return { success: false, error: error.message, ...(_baseMint ? { base_mint: _baseMint } : {}) };
   }
 }
 

@@ -26,8 +26,17 @@ log("startup", `Model: ${process.env.LLM_MODEL || "hermes-3-405b"}`);
 async function autoSwapBaseToken(base_mint, context = "") {
   if (!base_mint) return;
   try {
-    const balances = await getWalletBalances({});
-    const token = balances.tokens?.find(t => t.mint === base_mint);
+    // Retry up to 3x with 5s gap — Helius can lag indexing token balance after close tx
+    let token = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const balances = await getWalletBalances({});
+      token = balances.tokens?.find(t => t.mint === base_mint);
+      if (token?.usd >= 0.10) break;
+      if (attempt < 2) {
+        log("executor", `[${context}] Token ${base_mint.slice(0, 8)} not yet visible (attempt ${attempt + 1}/3) — retrying in 5s`);
+        await new Promise(r => setTimeout(r, 5000));
+      }
+    }
     if (token && token.usd >= 0.10) {
       log("executor", `[${context}] Auto-swapping ${token.symbol || base_mint.slice(0, 8)} ($${token.usd.toFixed(2)}) back to SOL`);
       await swapToken({ input_mint: base_mint, output_mint: "SOL", amount: token.balance });

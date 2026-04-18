@@ -379,8 +379,17 @@ export async function executeTool(name, args) {
       const txsWereSent = result.txs?.length > 0 || result.close_txs?.length > 0;
       if (success || txsWereSent) {
         try {
-          const balances = await getWalletBalances({});
-          const token = balances.tokens?.find(t => t.mint === result.base_mint);
+          // Retry up to 3x with 5s gap — Helius can lag indexing token balance after close tx
+          let token = null;
+          for (let attempt = 0; attempt < 3; attempt++) {
+            const balances = await getWalletBalances({});
+            token = balances.tokens?.find(t => t.mint === result.base_mint);
+            if (token?.usd >= 0.10) break;
+            if (attempt < 2) {
+              log("executor", `Auto-swap retry ${attempt + 1}/3 for ${result.base_mint.slice(0, 8)} — balance not yet visible`);
+              await new Promise(r => setTimeout(r, 5000));
+            }
+          }
           if (token && token.usd >= 0.10) {
             log("executor", `Auto-swapping ${token.symbol || result.base_mint.slice(0, 8)} ($${token.usd.toFixed(2)}) back to SOL`);
             const swapResult = await swapToken({ input_mint: result.base_mint, output_mint: "SOL", amount: token.balance });
