@@ -444,6 +444,13 @@ export async function executeTool(name, args) {
 async function runSafetyChecks(name, args) {
   switch (name) {
     case "deploy_position": {
+      // Enforce configured strategy — silently override if LLM picked a different one
+      const cfgStrategy = config.strategy.strategy;
+      if (cfgStrategy && args.strategy && args.strategy !== cfgStrategy) {
+        log("executor", `deploy_position: overriding strategy ${args.strategy} → ${cfgStrategy} (config)`);
+        args.strategy = cfgStrategy;
+      }
+
       // Reject pools with bin_step out of configured range
       const minStep = config.screening.minBinStep;
       const maxStep = config.screening.maxBinStep;
