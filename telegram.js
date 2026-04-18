@@ -466,7 +466,7 @@ export async function notifyClose({
     `${icon} <b>CLOSED — ${esc(pair)}</b>`,
     `<code>${DIV}</code>`,
     reasonTag ? esc(reasonTag) : null,
-    `<code>${DIV}</code>`,
+    reasonTag ? `<code>${DIV}</code>` : null,
     pnlHero,
     statsLine,
     flowLine,
