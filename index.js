@@ -410,10 +410,13 @@ export async function runManagementCycle({ silent = false } = {}) {
         }
       }
       // Rule 5: fee yield too low
+      const _earnedPct5 = p.total_value_usd > 0
+        ? (p.unclaimed_fees_usd ?? 0) / p.total_value_usd * 100
+        : 0;
       if (p.fee_per_tvl_24h != null &&
           p.fee_per_tvl_24h < config.management.minFeePerTvl24h &&
           (p.age_minutes ?? 0) >= config.management.minAgeBeforeYieldCheck &&
-          (p.unclaimed_fees_usd ?? 0) >= config.management.minFeesEarnedForYieldExit) {
+          _earnedPct5 >= config.management.minFeesEarnedPct) {
         actionMap.set(p.position, { action: "CLOSE", rule: 5, reason: "low yield" });
         continue;
       }
