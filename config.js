@@ -80,6 +80,7 @@ pnlVelocitySLPct:      u.pnlVelocitySLPct      ?? 5,   // close if PnL drops X% 
     deployAmountSol:       u.deployAmountSol       ?? 0.5,
     gasReserve:            u.gasReserve            ?? 0.2,
     positionSizePct:       u.positionSizePct       ?? 0.35,
+    autoEvolve:            u.autoEvolve            ?? true,    // auto-evolve screening thresholds every 5 closed positions
     autoCompound:          u.autoCompound          ?? false,   // scale deploy amount from wallet balance (no fixed floor)
     autoCompoundFeePct:    u.autoCompoundFeePct    ?? 0.02,   // reserve X% of wallet for tx fees (default 2%)
     bearMode:              u.bearMode              ?? false,   // swap excess SOL → USDC after close/claim; swap back before deploy
