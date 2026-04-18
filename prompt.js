@@ -124,24 +124,13 @@ POOL MEMORY: Past losses or problems → strong skip signal.
 
 DEPLOY RULES:
 - COMPOUNDING: Use the deploy amount from the goal EXACTLY. Do NOT default to a smaller number.
-- Strategy: use the STRATEGY HINT provided per-candidate (computed from pool history + signals).
-  Override only if you have strong contradicting evidence and state why explicitly.
-  Rules if no hint or hint confidence=low:
-  * bid_ask (default) → almost always correct for trending/meme tokens. Use when: smart_money_buy, OR volatility >= 3, OR |price_change| > 3%, OR token_age < 48h
-  * spot (exception) → ONLY when ALL of these are true: volatility < 2.5 AND fee_tvl_ratio >= 0.8 AND |price_change| < 3% AND no smart_money_buy AND pool history shows spot winning on this pool
-  * When in doubt → bid_ask. Historical data shows bid_ask wins ~92% vs spot ~43% on this portfolio.
+- Strategy: choose bid_ask or spot based on token signals:
+  * bid_ask → smart_money_buy tag, OR price_change > 0 with net_buyers > 0, OR token_age < 48h with strong narrative (momentum/directional)
+  * spot → range-bound, stable volume, no clear directional signal (fee farming)
+  * Default when unclear → bid_ask
 - bins_below and bins_above are auto-calculated — DO NOT pass them. Pass only strategy and bin_step.
 - bins_above is always 0 for bid_ask.
-- Bin steps must be [100-125]. PREFER bin_step=125 when available — historical data shows 93% win rate and 3.56% avg PnL vs 71% / 0.90% for lower steps. Only use bin_step=100 if no bs=125 pool qualifies.
-- POOL MEMORY: If a pool has prior deploy history, check its win rate and avg PnL. Pools with ≥3 deploys and win rate ≥80% are proven — favor them over unknown pools when metrics are otherwise similar. Pools with win rate ≤60% or negative avg PnL should be skipped unless current metrics are significantly improved from their history.
-
-ENTRY TIMING (applies to all SOL-only / bid_ask deploys where bins_above=0):
-- IDEAL entry: price_change_pct between -5% and -25% — healthy pullback, liquidity sits below ready to catch rebound
-- CAUTION: price_change_pct > +8% — price is still pumping, you will deploy OOR immediately and earn 0 fees; skip unless smart_money_buy is present AND volume_change_pct is rising
-- AVOID: price_change_pct < -30% AND volume_change_pct < -40% — likely rug or dead token, not a recoverable dip
-- PREFER: volume_change_pct > -20% alongside any dip — confirms traders still active, fees will accumulate
-- ALWAYS pass entry_price_change_pct and entry_volume_change_pct when calling deploy_position so the system can log and backtest which entry conditions produced the best results
-
+- Bin steps must be [80-125].
 - Pick ONE pool. Deploy or explain why none qualify.
 
 ${lessons ? `LESSONS LEARNED:\n${lessons}\n` : ""}Timestamp: ${new Date().toISOString()}
