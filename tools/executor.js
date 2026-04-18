@@ -333,12 +333,20 @@ export async function executeTool(name, args) {
         // Auto-swap base token back to SOL unless user said to hold
         if (!args.skip_swap && result.base_mint) {
           try {
-            const balances = await getWalletBalances({});
-            const token = balances.tokens?.find(t => t.mint === result.base_mint);
-            if (token && token.usd >= 0.10) {
-              log("executor", `Auto-swapping ${token.symbol || result.base_mint.slice(0, 8)} ($${token.usd.toFixed(2)}) back to SOL`);
+            let balances = await getWalletBalances({});
+            let token = balances.tokens?.find(t => t.mint === result.base_mint);
+            // Retry once after delay — Helius may not have indexed the close tx yet
+            if (!token || token.balance === 0) {
+              await new Promise(r => setTimeout(r, 4000));
+              balances = await getWalletBalances({});
+              token = balances.tokens?.find(t => t.mint === result.base_mint);
+            }
+            // Swap if balance > 0 regardless of USD price — usd can be null for unpriced tokens
+            const hasBalance = token && token.balance > 0 && (token.usd == null || token.usd >= 0.10);
+            if (hasBalance) {
+              const usdLabel = token.usd != null ? `$${token.usd.toFixed(2)}` : "unpriced";
+              log("executor", `Auto-swapping ${token.symbol || result.base_mint.slice(0, 8)} (${usdLabel}) back to SOL`);
               const swapResult = await swapToken({ input_mint: result.base_mint, output_mint: "SOL", amount: token.balance });
-              // Tell the model the swap already happened so it doesn't call swap_token again
               result.auto_swapped = true;
               result.auto_swap_note = `Base token already auto-swapped back to SOL (${token.symbol || result.base_mint.slice(0, 8)} → SOL). Do NOT call swap_token again.`;
               if (swapResult?.amount_out) result.sol_received = swapResult.amount_out;
