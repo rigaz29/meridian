@@ -978,7 +978,7 @@ if (isTTY) {
   _ttyInterface = rl;
 
   // Update prompt countdown every 10 seconds
-  setInterval(() => {
+  const _promptInterval = setInterval(() => {
     if (!busy) {
       rl.setPrompt(buildPrompt());
       rl.prompt(true); // true = preserve current line
@@ -1295,7 +1295,7 @@ Focus on: hold duration, entry/exit timing, what win rates look like, whether sc
     });
   });
 
-  rl.on("close", () => shutdown("stdin closed"));
+  rl.on("close", () => { clearInterval(_promptInterval); shutdown("stdin closed"); });
 
 } else {
   // Non-TTY: start immediately
