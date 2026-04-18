@@ -172,6 +172,7 @@ const toolMap = {
       minVolumeToRebalance: ["management", "minVolumeToRebalance"],
       stopLossPct: ["management", "stopLossPct"],
       minAgeBeforeSL: ["management", "minAgeBeforeSL"],
+      spotMaxHoldMinutes: ["management", "spotMaxHoldMinutes"],
 pnlVelocitySLPct: ["management", "pnlVelocitySLPct"],
       pnlVelocityWindowSec: ["management", "pnlVelocityWindowSec"],
       downsideOorWaitMinutes: ["management", "downsideOorWaitMinutes"],
