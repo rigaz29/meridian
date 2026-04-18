@@ -169,6 +169,7 @@ const toolMap = {
       autoSwapAfterClaim: ["management", "autoSwapAfterClaim"],
       outOfRangeBinsToClose: ["management", "outOfRangeBinsToClose"],
       outOfRangeWaitMinutes: ["management", "outOfRangeWaitMinutes"],
+      oorDownsideWaitMinutes: ["management", "oorDownsideWaitMinutes"],
       oorCooldownTriggerCount: ["management", "oorCooldownTriggerCount"],
       oorCooldownHours: ["management", "oorCooldownHours"],
       minVolumeToRebalance: ["management", "minVolumeToRebalance"],
@@ -197,8 +198,9 @@ const toolMap = {
       screeningModel: ["llm", "screeningModel"],
       generalModel: ["llm", "generalModel"],
       // strategy
-      targetDownsidePct: ["strategy", "targetDownsidePct"],
-      targetUpsidePct:   ["strategy", "targetUpsidePct"],
+      targetDownsidePctBidAsk: ["strategy", "targetDownsidePctBidAsk"],
+      targetDownsidePctSpot:   ["strategy", "targetDownsidePctSpot"],
+      targetUpsidePct:         ["strategy", "targetUpsidePct"],
     };
 
     const applied = {};

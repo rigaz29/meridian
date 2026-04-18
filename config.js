@@ -57,6 +57,7 @@ export const config = {
     autoSwapAfterClaim:    u.autoSwapAfterClaim    ?? false,
     outOfRangeBinsToClose: u.outOfRangeBinsToClose ?? 10,
     outOfRangeWaitMinutes: u.outOfRangeWaitMinutes ?? 30,
+    oorDownsideWaitMinutes: u.oorDownsideWaitMinutes ?? 5,  // close after X min OOR downside (price < lower_bin) to limit IL
     oorCooldownTriggerCount: u.oorCooldownTriggerCount ?? 3,
     oorCooldownHours:       u.oorCooldownHours       ?? 12,
     minVolumeToRebalance:  u.minVolumeToRebalance  ?? 1000,
@@ -84,9 +85,10 @@ export const config = {
 
   // ─── Strategy Mapping ───────────────────
   strategy: {
-    strategy:         u.strategy         ?? "bid_ask",
-    targetDownsidePct: u.targetDownsidePct ?? 0.35,  // cover X% price drop below active bin
-    targetUpsidePct:   u.targetUpsidePct   ?? 0.20,  // cover X% price rise above active bin (spot only)
+    strategy:               u.strategy               ?? "bid_ask",
+    targetDownsidePctBidAsk: u.targetDownsidePctBidAsk ?? 0.30,  // bid_ask: 30% downside coverage (tighter = more fee concentration)
+    targetDownsidePctSpot:   u.targetDownsidePctSpot   ?? 0.22,  // spot: symmetric with upside
+    targetUpsidePct:         u.targetUpsidePct         ?? 0.22,  // spot only: upside coverage (symmetric with targetDownsidePctSpot)
   },
 
   // ─── Scheduling ─────────────────────────

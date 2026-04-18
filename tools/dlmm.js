@@ -125,8 +125,10 @@ export async function deployPosition({
   pool_address = normalizeMint(pool_address);
   const activeStrategy = strategy || config.strategy.strategy;
 
-  const targetDownside = config.strategy.targetDownsidePct ?? 0.35;
-  const targetUpside   = config.strategy.targetUpsidePct   ?? 0.20;
+  const targetDownside = activeStrategy === "bid_ask"
+    ? (config.strategy.targetDownsidePctBidAsk ?? 0.30)
+    : (config.strategy.targetDownsidePctSpot   ?? 0.22);
+  const targetUpside = config.strategy.targetUpsidePct ?? 0.22;
 
   // Preliminary estimate using provided bin_step (used for DRY_RUN and wide-range check)
   const estBinStep = bin_step ?? 100;
