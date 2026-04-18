@@ -277,6 +277,16 @@ export async function getTopCandidates({ limit = 10 } = {}) {
     if (eligible.length < before) log("dev_blocklist", `Filtered ${before - eligible.length} pool(s) via OKX creator check`);
   }
 
+  // Enrich with live OHLCV technical indicators (parallel, non-blocking)
+  if (eligible.length > 0) {
+    const { computeTechnicalIndicators } = await import("../meteora-api.js");
+    const indResults = await Promise.allSettled(eligible.map(p => computeTechnicalIndicators(p.pool)));
+    for (let i = 0; i < eligible.length; i++) {
+      const r = indResults[i];
+      if (r.status === "fulfilled" && r.value) eligible[i].indicators = r.value;
+    }
+  }
+
   return {
     candidates: eligible,
     total_screened: pools.length,
