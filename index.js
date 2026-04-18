@@ -186,6 +186,11 @@ function scheduleTrailingDropConfirmation(positionAddress, { restart = false } =
               depositedUsd:    closeResult.deposited_usd,
               withdrawnUsd:    closeResult.withdrawn_usd,
               positionAddress,
+              strategy:        closeResult.strategy,
+              binStep:         closeResult.bin_step,
+              volatility:      closeResult.volatility,
+              indicators:      closeResult.indicators_at_exit,
+              closeTx:         closeResult.close_tx,
             }).catch(() => {});
           }
           if (closeResult?.base_mint) {
@@ -243,6 +248,11 @@ function scheduleStopLossConfirmation(positionAddress) {
               depositedUsd:    closeResult.deposited_usd,
               withdrawnUsd:    closeResult.withdrawn_usd,
               positionAddress,
+              strategy:        closeResult.strategy,
+              binStep:         closeResult.bin_step,
+              volatility:      closeResult.volatility,
+              indicators:      closeResult.indicators_at_exit,
+              closeTx:         closeResult.close_tx,
             }).catch(() => {});
           }
           if (closeResult?.base_mint) {
@@ -933,6 +943,11 @@ Summarize the current portfolio health, total fees earned, and performance of al
                     depositedUsd:    closeResult.deposited_usd,
                     withdrawnUsd:    closeResult.withdrawn_usd,
                     positionAddress: p.position,
+                    strategy:        closeResult.strategy,
+                    binStep:         closeResult.bin_step,
+                    volatility:      closeResult.volatility,
+                    indicators:      closeResult.indicators_at_exit,
+                    closeTx:         closeResult.close_tx,
                   }).catch(() => {});
                 }
                 if (closeResult?.base_mint) {

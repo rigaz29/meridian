@@ -382,6 +382,11 @@ export async function deployPosition({
       amount_x: finalAmountX,
       amount_y: finalAmountY,
       txs: txHashes,
+      deploy_tx: txHashes[0] ?? null,
+      volatility: volatility ?? null,
+      fee_tvl_ratio: fee_tvl_ratio ?? null,
+      organic_score: organic_score ?? null,
+      indicators_at_entry: indicators_at_entry || null,
     };
   } catch (error) {
     log("deploy_error", error.message);
@@ -1090,6 +1095,7 @@ export async function closePosition({ position_address, reason }) {
         claim_txs: claimTxHashes,
         close_txs: closeTxHashes,
         txs: txHashes,
+        close_tx: closeTxHashes?.[0] ?? txHashes?.[txHashes.length - 1] ?? null,
         pnl_usd: pnlUsd,
         pnl_pct: pnlPct,
         fees_earned_usd: feesUsd,
@@ -1099,6 +1105,10 @@ export async function closePosition({ position_address, reason }) {
         deposited_usd: initialUsd || null,
         withdrawn_usd: finalValueUsd || null,
         base_mint: pool.lbPair.tokenXMint.toString(),
+        strategy: tracked.strategy || null,
+        bin_step: tracked.bin_step || null,
+        volatility: tracked.volatility || null,
+        indicators_at_exit: indicators_at_exit || null,
       };
     }
 

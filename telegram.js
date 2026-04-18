@@ -387,32 +387,67 @@ export function stopPolling() {
 
 // ─── Notification helpers ────────────────────────────────────────
 
-export async function notifyDeploy({ pair, amountSol, position, tx, priceRange, binStep, baseFee, strategy }) {
+export async function notifyDeploy({ pair, amountSol, position, tx, priceRange, binStep, baseFee, strategy, volatility, feeTvlRatio, organicScore, indicators }) {
 
-  const meta = [
+  // Stat row: amount · strategy · bin_step · fee
+  const statParts = [
     amountSol != null ? `◎ ${Number(amountSol).toFixed(3)} SOL` : null,
-    strategy ? strategy : null,
-    binStep  ? `bs=${binStep}` : null,
+    strategy  ? `📊 ${strategy}` : null,
+    binStep   ? `bs=${binStep}` : null,
     baseFee  != null ? `fee ${baseFee}%` : null,
-  ].filter(Boolean).join("  ·  ");
+  ].filter(Boolean);
+  const statsLine = statParts.length ? statParts.join("  ·  ") : null;
 
-  const rangeStr = priceRange
-    ? `\n📊 <code>${fmtPrice(priceRange.min)}</code>  →  <code>${fmtPrice(priceRange.max)}</code>`
-    : "";
+  // Pool quality: volatility · fee/tvl · organic
+  const qualParts = [
+    volatility    != null ? `vol=${Number(volatility).toFixed(1)}` : null,
+    feeTvlRatio   != null ? `f/tvl=${Number(feeTvlRatio).toFixed(2)}` : null,
+    organicScore  != null ? `org=${Number(organicScore).toFixed(0)}%` : null,
+  ].filter(Boolean);
+  const qualLine = qualParts.length ? qualParts.join("  ·  ") : null;
 
-  await sendHTML(
-    `🚀 <b>DEPLOYED — ${esc(pair)}</b>\n` +
-    `<code>${DIV}</code>\n` +
-    (meta ? `<code>${esc(meta)}</code>` : "") +
-    rangeStr +
-    `\n🔑 <code>${position?.slice(0, 20) ?? "?"}</code>` +
-    (tx ? `\n📋 <code>${tx.slice(0, 20)}</code>` : "")
-  );
+  // Price range
+  const rangeLine = priceRange
+    ? `📉 <code>${fmtPrice(priceRange.min)}</code>  ↔  <code>${fmtPrice(priceRange.max)}</code>`
+    : null;
+
+  // Entry indicators: RSI · EMA · BB
+  let indLine = null;
+  if (indicators) {
+    const indParts = [];
+    if (indicators.rsi_14   != null) indParts.push(`RSI ${Number(indicators.rsi_14).toFixed(1)}`);
+    if (indicators.ema_trend)        indParts.push(`EMA ${indicators.ema_trend}`);
+    if (indicators.bb_position)      indParts.push(`BB ${indicators.bb_position}`);
+    if (indicators.nearest_support_pct != null) indParts.push(`support -${Number(indicators.nearest_support_pct).toFixed(1)}%`);
+    if (indParts.length) indLine = `📈 ${indParts.join("  ·  ")}`;
+  }
+
+  const addrLine = position
+    ? `🔑 <code>${position.slice(0, 20)}</code>`
+    : null;
+
+  const txLine = tx
+    ? `<a href="https://solscan.io/tx/${tx}">View on Solscan</a>`
+    : null;
+
+  const lines = [
+    `🚀 <b>DEPLOYED — ${esc(pair)}</b>`,
+    `<code>${DIV}</code>`,
+    statsLine,
+    qualLine,
+    rangeLine,
+    indLine,
+    addrLine,
+    txLine,
+  ].filter(Boolean);
+
+  await sendHTML(lines.join("\n"));
 }
 
 export async function notifyClose({
   pair, pnlUsd, pnlPct, feesEarned, reason, rangeEfficiency,
   ageMinutes, deploySol, depositedUsd, withdrawnUsd, positionAddress,
+  strategy, binStep, volatility, indicators, closeTx,
 }) {
 
   const pnlVal = Number(pnlUsd ?? 0);
@@ -456,8 +491,29 @@ export async function notifyClose({
     ? `📐 <code>${progressBar(rangeEfficiency, 14)}</code> ${Number(rangeEfficiency).toFixed(0)}%`
     : null;
 
+  // Pool params: strategy · bin_step · volatility
+  const paramParts = [];
+  if (strategy)   paramParts.push(`📊 ${strategy}`);
+  if (binStep)    paramParts.push(`bs=${binStep}`);
+  if (volatility) paramParts.push(`vol=${Number(volatility).toFixed(1)}`);
+  const paramLine = paramParts.length ? paramParts.join("  ·  ") : null;
+
+  // Exit indicators: RSI · EMA · BB
+  let indLine = null;
+  if (indicators) {
+    const indParts = [];
+    if (indicators.rsi_14   != null) indParts.push(`RSI ${Number(indicators.rsi_14).toFixed(1)}`);
+    if (indicators.ema_trend)        indParts.push(`EMA ${indicators.ema_trend}`);
+    if (indicators.bb_position)      indParts.push(`BB ${indicators.bb_position}`);
+    if (indParts.length) indLine = `📈 ${indParts.join("  ·  ")}`;
+  }
+
   const addrLine = positionAddress
     ? `🔑 <code>${positionAddress.slice(0, 20)}</code>`
+    : null;
+
+  const txLine = closeTx
+    ? `<a href="https://solscan.io/tx/${closeTx}">View on Solscan</a>`
     : null;
 
   const lines = [
@@ -469,7 +525,10 @@ export async function notifyClose({
     statsLine,
     flowLine,
     effLine,
+    paramLine,
+    indLine,
     addrLine,
+    txLine,
   ].filter(Boolean);
 
   await sendHTML(lines.join("\n"));
