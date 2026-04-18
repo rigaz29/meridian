@@ -90,6 +90,7 @@ export function trackPosition({
     signal_snapshot: signal_snapshot || null,
     deployed_at: new Date().toISOString(),
     out_of_range_since: null,
+    out_of_range_downside_since: null,
     last_claim_at: null,
     total_fees_claimed_usd: 0,
     rebalance_count: 0,
@@ -158,6 +159,48 @@ export function minutesOutOfRange(position_address) {
     markInRange(position_address);
     return 0;
   }
+  return Math.floor(ms / 60000);
+}
+
+/**
+ * Mark a position as OOR on the downside (price < lower_bin).
+ * Sets timestamp on first detection; no-op if already marked.
+ */
+export function markOORDownside(position_address) {
+  const state = load();
+  const pos = state.positions[position_address];
+  if (!pos || pos.closed) return;
+  if (!pos.out_of_range_downside_since) {
+    pos.out_of_range_downside_since = new Date().toISOString();
+    save(state);
+    log("state", `Position ${position_address} OOR downside — price below lower bin`);
+  }
+}
+
+/**
+ * Clear the downside OOR timestamp (price recovered above lower_bin).
+ */
+export function clearOORDownside(position_address) {
+  const state = load();
+  const pos = state.positions[position_address];
+  if (!pos) return;
+  if (pos.out_of_range_downside_since) {
+    pos.out_of_range_downside_since = null;
+    save(state);
+    log("state", `Position ${position_address} OOR downside cleared — price back above lower bin`);
+  }
+}
+
+/**
+ * How many minutes has a position been OOR on the downside?
+ * Returns 0 if not currently OOR downside.
+ */
+export function minutesOORDownside(position_address) {
+  const state = load();
+  const pos = state.positions[position_address];
+  if (!pos || !pos.out_of_range_downside_since) return 0;
+  const ms = Date.now() - new Date(pos.out_of_range_downside_since).getTime();
+  if (ms < 0) { clearOORDownside(position_address); return 0; }
   return Math.floor(ms / 60000);
 }
 

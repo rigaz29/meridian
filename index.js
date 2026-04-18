@@ -11,7 +11,7 @@ import { evolveThresholds, getPerformanceSummary, bootstrapFromHistory } from ".
 import { registerCronRestarter } from "./tools/executor.js";
 import { startPolling, stopPolling, sendMessage, sendHTML, notifyOutOfRange, isEnabled as telegramEnabled, createLiveMessage } from "./telegram.js";
 import { generateBriefing } from "./briefing.js";
-import { getLastBriefingDate, setLastBriefingDate, getTrackedPosition, setPositionInstruction, updatePnlAndCheckExits, queuePeakConfirmation, resolvePendingPeak, queueTrailingDropConfirmation, resolvePendingTrailingDrop, queueStopLossConfirmation, resolvePendingStopLoss } from "./state.js";
+import { getLastBriefingDate, setLastBriefingDate, getTrackedPosition, setPositionInstruction, updatePnlAndCheckExits, queuePeakConfirmation, resolvePendingPeak, queueTrailingDropConfirmation, resolvePendingTrailingDrop, queueStopLossConfirmation, resolvePendingStopLoss, markOORDownside, clearOORDownside, minutesOORDownside } from "./state.js";
 import { getActiveStrategy } from "./strategy-library.js";
 import { recordPositionSnapshot, recallForPool, addPoolNote } from "./pool-memory.js";
 import { checkSmartWalletsOnPool } from "./smart-wallets.js";
@@ -286,6 +286,19 @@ export async function runManagementCycle({ silent = false } = {}) {
         return false;
       })();
 
+      // Track OOR downside direction (always, regardless of other rules)
+      if (p.active_bin != null && p.lower_bin != null) {
+        if (p.active_bin < p.lower_bin) markOORDownside(p.position);
+        else clearOORDownside(p.position);
+      }
+      // Rule 2b: OOR downside too long — close to limit IL (price below lower bin)
+      if (p.active_bin != null && p.lower_bin != null && p.active_bin < p.lower_bin) {
+        const minsDown = minutesOORDownside(p.position);
+        if (minsDown >= config.management.oorDownsideWaitMinutes) {
+          actionMap.set(p.position, { action: "CLOSE", rule: "2b", reason: `OOR downside ${minsDown}m — price below range, IL stop loss` });
+          continue;
+        }
+      }
       // Rule 2: take profit (skip if trailing TP is active — trailing handles the exit)
       if (!pnlSuspect && !tracked?.trailing_active && p.pnl_pct != null && p.pnl_pct >= config.management.takeProfitFeePct) {
         actionMap.set(p.position, { action: "CLOSE", rule: 2, reason: "take profit" });
@@ -709,6 +722,25 @@ Summarize the current portfolio health, total fees earned, and performance of al
       const result = await getMyPositions({ force: true, silent: true }).catch(() => null);
       if (!result?.positions?.length) return;
       for (const p of result.positions) {
+        // OOR downside tracking — update state every poll tick
+        if (p.active_bin != null && p.lower_bin != null) {
+          if (p.active_bin < p.lower_bin) markOORDownside(p.position);
+          else clearOORDownside(p.position);
+        }
+        // OOR downside close — bypass LLM and management cycle cooldown
+        if (p.active_bin != null && p.lower_bin != null && p.active_bin < p.lower_bin) {
+          const minsDown = minutesOORDownside(p.position);
+          if (minsDown >= config.management.oorDownsideWaitMinutes) {
+            log("state", `[PnL poll] OOR downside ${minsDown}m for ${p.pair} — closing directly to limit IL`);
+            closePosition({ position_address: p.position, reason: `OOR downside ${minsDown}m — price below lower bin, IL stop loss` })
+              .catch(e => {
+                log("cron_error", `[OOR downside] Direct close failed for ${p.position}: ${e.message} — falling back to management`);
+                runManagementCycle({ silent: true }).catch(() => {});
+              });
+            break;
+          }
+        }
+
         if (!p.pnl_pct_suspicious && queuePeakConfirmation(p.position, p.pnl_pct)) {
           schedulePeakConfirmation(p.position);
         }
