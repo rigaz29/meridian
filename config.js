@@ -67,6 +67,7 @@ export const config = {
     outOfRangeWaitMinutes:   u.outOfRangeWaitMinutes   ?? 30,
     downsideOorWaitMinutes:  u.downsideOorWaitMinutes  ?? 5,   // faster exit for downside OOR (recovery rare)
     oorCooldownTriggerCount: u.oorCooldownTriggerCount ?? 3,
+    oorCooldownHours:        u.oorCooldownHours        ?? 6,
     minVolumeToRebalance:  u.minVolumeToRebalance  ?? 1000,
     stopLossPct:           u.stopLossPct           ?? u.emergencyPriceDropPct ?? -20,
     minAgeBeforeSL:        u.minAgeBeforeSL        ?? 7,   // minutes before stop loss can trigger
