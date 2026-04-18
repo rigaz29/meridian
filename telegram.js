@@ -390,21 +390,24 @@ export function stopPolling() {
 export async function notifyDeploy({ pair, amountSol, position, tx, priceRange, binStep, baseFee, strategy }) {
   if (hasActiveLiveMessage()) return;
 
+  const meta = [
+    amountSol != null ? `◎ ${Number(amountSol).toFixed(3)} SOL` : null,
+    strategy ? strategy : null,
+    binStep  ? `bs=${binStep}` : null,
+    baseFee  != null ? `fee ${baseFee}%` : null,
+  ].filter(Boolean).join("  ·  ");
+
   const rangeStr = priceRange
-    ? `\n📊 Range: <code>${fmtPrice(priceRange.min)}</code> – <code>${fmtPrice(priceRange.max)}</code>`
+    ? `\n📊 <code>${fmtPrice(priceRange.min)}</code>  →  <code>${fmtPrice(priceRange.max)}</code>`
     : "";
-  const poolStr = (binStep || baseFee)
-    ? `\n⚙️ Bin step: <b>${binStep ?? "?"}</b>  │  Base fee: <b>${baseFee != null ? baseFee + "%" : "?"}</b>${strategy ? `  │  Strategy: <b>${strategy}</b>` : ""}`
-    : strategy ? `\n🎯 Strategy: <b>${strategy}</b>` : "";
 
   await sendHTML(
-    `✅ <b>DEPLOYED — ${esc(pair)}</b>\n` +
+    `🚀 <b>DEPLOYED — ${esc(pair)}</b>\n` +
     `<code>${DIV}</code>\n` +
-    `💰 Amount: <b>${amountSol} SOL</b>` +
-    poolStr +
+    (meta ? `<code>${esc(meta)}</code>` : "") +
     rangeStr +
-    `\n🔑 Position: <code>${position?.slice(0, 12)}...</code>` +
-    (tx ? `\n📋 Tx: <code>${tx.slice(0, 16)}...</code>` : "")
+    `\n🔑 <code>${position?.slice(0, 20) ?? "?"}</code>` +
+    (tx ? `\n📋 <code>${tx.slice(0, 20)}</code>` : "")
   );
 }
 
@@ -414,62 +417,61 @@ export async function notifyClose({
 }) {
   if (hasActiveLiveMessage()) return;
 
-  const profit = Number(pnlUsd ?? 0) >= 0;
+  const pnlVal = Number(pnlUsd ?? 0);
+  const profit = pnlVal >= 0;
   const icon   = profit ? "🟢" : "🔴";
 
-  // ── Reason (prominent, at top) ───────────────────────────────
-  const reasonLabel = (() => {
+  const reasonTag = (() => {
     if (!reason) return null;
     const r = String(reason);
-    if (/trailing/i.test(r))                return `🔔 ${r}`;
-    if (/stop.?loss/i.test(r))              return `🛑 ${r}`;
-    if (/take.?profit|tp/i.test(r))         return `🎯 ${r}`;
-    if (/out.?of.?range|oor/i.test(r))      return `📊 ${r}`;
-    if (/low.?yield|yield/i.test(r))        return `📉 ${r}`;
-    if (/pump|above.?range/i.test(r))       return `🚀 ${r}`;
+    if (/trailing/i.test(r))           return `🔔 ${r}`;
+    if (/stop.?loss/i.test(r))         return `🛑 ${r}`;
+    if (/take.?profit|tp/i.test(r))    return `🎯 ${r}`;
+    if (/out.?of.?range|oor/i.test(r)) return `📤 ${r}`;
+    if (/low.?yield|yield/i.test(r))   return `📉 ${r}`;
+    if (/velocity/i.test(r))           return `⚡ ${r}`;
+    if (/pump|above.?range/i.test(r))  return `🚀 ${r}`;
     return `📌 ${r}`;
   })();
 
-  // ── PnL line ─────────────────────────────────────────────────
-  const pnlLine = `💵 PnL: <b>${fmtUsd(pnlUsd)}</b> (<b>${fmtPct(pnlPct)}</b>)`;
+  // PnL hero line
+  const pnlHero = `<b>${fmtUsd(pnlUsd)}</b>  <b>${fmtPct(pnlPct)}</b>`;
 
-  // ── Fees line ─────────────────────────────────────────────────
+  // Stat row: fees · age · deployed
+  const statParts = [];
   const fees = Number(feesEarned ?? 0);
-  const feesLine = fees > 0
-    ? `\n💎 Fees earned: <b>+$${fees.toFixed(2)}</b>`
-    : "";
-
-  // ── Age + deploy ──────────────────────────────────────────────
-  const ageParts = [];
+  if (fees > 0) statParts.push(`💎 $${fees.toFixed(2)} fees`);
   if (ageMinutes != null) {
-    const h = Math.floor(ageMinutes / 60);
-    const m = ageMinutes % 60;
-    ageParts.push(h > 0 ? `${h}h ${m}m` : `${m}m`);
+    const h = Math.floor(ageMinutes / 60), m = ageMinutes % 60;
+    statParts.push(`⏱ ${h > 0 ? `${h}h ${m}m` : `${m}m`}`);
   }
-  if (deploySol != null) ageParts.push(`${Number(deploySol).toFixed(3)} SOL deployed`);
-  const ageLine = ageParts.length > 0 ? `\n⏱ ${ageParts.join("  │  ")}` : "";
+  if (deploySol != null) statParts.push(`◎ ${Number(deploySol).toFixed(3)}`);
+  const statsLine = statParts.length ? statParts.join("  ·  ") : null;
 
-  // ── Capital flow (deposited → withdrawn) ─────────────────────
+  // Capital flow
   const flowLine = (depositedUsd != null && withdrawnUsd != null && depositedUsd > 0)
-    ? `\n💰 $${Number(depositedUsd).toFixed(2)} → $${Number(withdrawnUsd).toFixed(2)}`
-    : "";
+    ? `💰 $${Number(depositedUsd).toFixed(2)}  →  $${Number(withdrawnUsd).toFixed(2)}`
+    : null;
 
-  // ── Range efficiency ─────────────────────────────────────────
+  // Range bar
   const effLine = rangeEfficiency != null
-    ? `\n📐 In-range: <b>${Number(rangeEfficiency).toFixed(0)}%</b> ${progressBar(rangeEfficiency, 12)}`
-    : "";
+    ? `📐 <code>${progressBar(rangeEfficiency, 14)}</code> ${Number(rangeEfficiency).toFixed(0)}%`
+    : null;
 
-  // ── Position address (short) ──────────────────────────────────
   const addrLine = positionAddress
-    ? `\n🔑 <code>${positionAddress.slice(0, 16)}…</code>`
-    : "";
+    ? `🔑 <code>${positionAddress.slice(0, 20)}</code>`
+    : null;
 
   const lines = [
     `${icon} <b>CLOSED — ${esc(pair)}</b>`,
     `<code>${DIV}</code>`,
-    reasonLabel ? esc(reasonLabel) : null,
-    reasonLabel ? `<code>${DIV}</code>` : null,
-    pnlLine + feesLine + ageLine + flowLine + effLine + addrLine,
+    reasonTag ? esc(reasonTag) : null,
+    `<code>${DIV}</code>`,
+    pnlHero,
+    statsLine,
+    flowLine,
+    effLine,
+    addrLine,
   ].filter(Boolean);
 
   await sendHTML(lines.join("\n"));
@@ -478,25 +480,33 @@ export async function notifyClose({
 export async function notifySwap({ inputSymbol, outputSymbol, amountIn, amountOut, tx }) {
   if (hasActiveLiveMessage()) return;
 
-  const inStr  = amountIn  != null ? String(Number(amountIn).toLocaleString("en", { maximumFractionDigits: 6 }))  : "?";
-  const outStr = amountOut != null ? String(Number(amountOut).toLocaleString("en", { maximumFractionDigits: 6 })) : "?";
+  const inVal  = amountIn  != null ? Number(amountIn)  : null;
+  const outVal = amountOut != null ? Number(amountOut) : null;
+  const inStr  = inVal  != null ? inVal.toLocaleString("en",  { maximumFractionDigits: 6 }) : "?";
+  const outStr = outVal != null ? outVal.toLocaleString("en", { maximumFractionDigits: 6 }) : "?";
+
+  const rateStr = (inVal && outVal && inVal > 0)
+    ? `\n⚡ <code>1 ${esc(inputSymbol ?? "?")} = ${(outVal / inVal).toLocaleString("en", { maximumFractionDigits: 8 })} ${esc(outputSymbol ?? "?")}</code>`
+    : "";
 
   await sendHTML(
-    `🔄 <b>SWAPPED</b>\n` +
+    `🔄 <b>SWAPPED</b>  <b>${esc(inputSymbol ?? "?")} → ${esc(outputSymbol ?? "?")}</b>\n` +
     `<code>${DIV}</code>\n` +
-    `<b>${esc(inputSymbol ?? "?")} → ${esc(outputSymbol ?? "?")}</b>\n` +
-    `📥 In: <code>${inStr}</code>\n` +
-    `📤 Out: <code>${outStr}</code>` +
-    (tx ? `\n📋 Tx: <code>${tx.slice(0, 16)}...</code>` : "")
+    `📥 <code>${inStr}</code>  →  📤 <code>${outStr}</code>` +
+    rateStr +
+    (tx ? `\n📋 <code>${tx.slice(0, 20)}</code>` : "")
   );
 }
 
-export async function notifyOutOfRange({ pair, minutesOOR }) {
+export async function notifyOutOfRange({ pair, minutesOOR, direction }) {
   if (hasActiveLiveMessage()) return;
+  const dirTag = direction === "up"   ? "📈 price above range" :
+                 direction === "down" ? "📉 price below range" : "";
   await sendHTML(
-    `⚠️ <b>OUT OF RANGE — ${esc(pair)}</b>\n` +
+    `⚠️ <b>OOR — ${esc(pair)}</b>\n` +
     `<code>${DIV}</code>\n` +
-    `⏱ OOR for <b>${minutesOOR}m</b> — will close if no recovery`
+    `⏱ <b>${minutesOOR}m</b> out of range${dirTag ? `  ·  ${dirTag}` : ""}\n` +
+    `<i>Will close if no recovery</i>`
   );
 }
 
@@ -507,30 +517,36 @@ export async function notifyOutOfRange({ pair, minutesOOR }) {
 export function formatPositionsList(positions, { solMode = false } = {}) {
   const cur = solMode ? "◎" : "$";
   const total = positions.length;
+  const totalVal = positions.reduce((s, p) => s + Number(p.total_value_usd ?? 0), 0);
 
   const lines = positions.map((p, i) => {
     const pnlUsd = Number(p.pnl_usd ?? 0);
     const pnlPct = Number(p.pnl_pct ?? 0);
     const val    = Number(p.total_value_usd ?? 0);
     const fees   = Number(p.unclaimed_fees_usd ?? 0);
-    const age    = p.age_minutes != null ? `${p.age_minutes}m` : "?";
+    const ageMin = p.age_minutes ?? 0;
+    const h = Math.floor(ageMin / 60), m = ageMin % 60;
+    const age = ageMin >= 60 ? `${h}h${m > 0 ? ` ${m}m` : ""}` : `${ageMin}m`;
     const inRange = p.in_range;
-    const oor = !inRange ? `🔴 OOR ${p.minutes_out_of_range ?? 0}m` : "🟢 In range";
-    const pnlSign = pnlUsd >= 0 ? "+" : "";
+    const rangeTag = inRange
+      ? `🟢 in range`
+      : `🔴 OOR ${p.minutes_out_of_range ?? 0}m`;
+    const pnlIcon = pnlUsd >= 0 ? "▲" : "▼";
 
     return (
-      `<b>${i + 1}. ${esc(p.pair)}</b>  <i>${age}</i>\n` +
-      `   ${cur}${val.toFixed(2)} │ PnL: <b>${pnlSign}${cur}${Math.abs(pnlUsd).toFixed(2)} (${fmtPct(pnlPct)})</b>\n` +
-      `   💎 Fees: ${cur}${fees.toFixed(2)} │ ${oor}`
+      `<b>${i + 1}. ${esc(p.pair)}</b>  ·  ⏱ ${age}\n` +
+      `   ${cur}${val.toFixed(2)}  ·  PnL <b>${fmtUsd(pnlUsd)} (${pnlIcon}${Math.abs(pnlPct).toFixed(2)}%)</b>\n` +
+      `   💎 ${cur}${fees.toFixed(2)} fees  ·  ${rangeTag}`
     );
   });
 
+  const header = `📊 <b>Positions (${total})</b>  ·  ${cur}${totalVal.toFixed(2)} total`;
+
   return (
-    `📊 <b>Open Positions (${total})</b>\n` +
-    `<code>${DIV}</code>\n` +
+    header + `\n<code>${DIV}</code>\n` +
     lines.join(`\n<code>${DIV}</code>\n`) +
     `\n<code>${DIV}</code>\n` +
-    `<i>/close &lt;n&gt; • /set &lt;n&gt; &lt;note&gt;</i>`
+    `<i>/close &lt;n&gt;  ·  /set &lt;n&gt; &lt;note&gt;</i>`
   );
 }
 

@@ -29,33 +29,49 @@ export async function generateBriefing() {
   const openPositions = allPositions.filter(p => !p.closed);
   const perfSummary = getPerformanceSummary();
 
-  // 5. Format Message
+  const DIV = "<code>──────────────────</code>";
+  const dateStr = now.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+
+  // Performance section
+  const wins24h = perfLast24h.filter(p => p.pnl_usd > 0).length;
+  const winRateStr = perfLast24h.length > 0
+    ? `${Math.round(wins24h / perfLast24h.length * 100)}%  (${wins24h}/${perfLast24h.length})`
+    : "—";
+  const pnlSign = totalPnLUsd >= 0 ? "+" : "";
+  const pnlIcon = totalPnLUsd >= 0 ? "📈" : "📉";
+
+  // Portfolio section
+  const openTotalUsd = openPositions.reduce((s, p) => s + Number(p.initial_value_usd ?? 0), 0);
+
   const lines = [
-    "☀️ <b>Morning Briefing</b> (Last 24h)",
-    "────────────────",
-    `<b>Activity:</b>`,
-    `📥 Positions Opened: ${openedLast24h.length}`,
-    `📤 Positions Closed: ${closedLast24h.length}`,
-    "",
-    `<b>Performance:</b>`,
-    `💰 Net PnL: ${totalPnLUsd >= 0 ? "+" : ""}$${totalPnLUsd.toFixed(2)}`,
-    `💎 Fees Earned: $${totalFeesUsd.toFixed(2)}`,
-    perfLast24h.length > 0
-      ? `📈 Win Rate (24h): ${Math.round((perfLast24h.filter(p => p.pnl_usd > 0).length / perfLast24h.length) * 100)}%`
-      : "📈 Win Rate (24h): N/A",
-    "",
-    `<b>Lessons Learned:</b>`,
-    lessonsLast24h.length > 0
-      ? lessonsLast24h.map(l => `• ${l.rule}`).join("\n")
-      : "• No new lessons recorded overnight.",
-    "",
-    `<b>Current Portfolio:</b>`,
-    `📂 Open Positions: ${openPositions.length}`,
-    perfSummary
-      ? `📊 All-time PnL: $${perfSummary.total_pnl_usd.toFixed(2)} (${perfSummary.win_rate_pct}% win)`
-      : "",
-    "────────────────"
+    `☀️ <b>Daily Briefing</b>  ·  ${dateStr}`,
+    DIV,
+
+    `${pnlIcon} <b>PERFORMANCE (24h)</b>`,
+    `Net PnL:   <b>${pnlSign}$${Math.abs(totalPnLUsd).toFixed(2)}</b>`,
+    `Fees:      <b>+$${totalFeesUsd.toFixed(2)}</b>`,
+    `Win rate:  <b>${winRateStr}</b>`,
+    DIV,
+
+    `📂 <b>ACTIVITY</b>`,
+    `Opened:  ${openedLast24h.length}  ·  Closed: ${closedLast24h.length}`,
+    DIV,
   ];
+
+  if (lessonsLast24h.length > 0) {
+    lines.push(`🧠 <b>NEW LESSONS (${lessonsLast24h.length})</b>`);
+    for (const l of lessonsLast24h.slice(0, 5)) {
+      lines.push(`• ${l.rule.slice(0, 120)}`);
+    }
+    lines.push(DIV);
+  }
+
+  lines.push(`📊 <b>PORTFOLIO</b>`);
+  lines.push(`Open:  <b>${openPositions.length} positions</b>${openTotalUsd > 0 ? `  ·  $${openTotalUsd.toFixed(0)}` : ""}`);
+  if (perfSummary) {
+    const allSign = perfSummary.total_pnl_usd >= 0 ? "+" : "";
+    lines.push(`All-time:  <b>${allSign}$${perfSummary.total_pnl_usd.toFixed(2)}</b>  ·  ${perfSummary.win_rate_pct}% win rate`);
+  }
 
   return lines.join("\n");
 }

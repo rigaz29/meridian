@@ -436,17 +436,25 @@ export async function runManagementCycle({ silent = false } = {}) {
     const totalValue = positionData.reduce((s, p) => s + (p.total_value_usd ?? 0), 0);
     const totalUnclaimed = positionData.reduce((s, p) => s + (p.unclaimed_fees_usd ?? 0), 0);
 
+    const cur = config.management.solMode ? "◎" : "$";
+
     const reportLines = positionData.map((p) => {
       const act = actionMap.get(p.position);
+      const ageMin = p.age_minutes ?? 0;
+      const h = Math.floor(ageMin / 60), m = ageMin % 60;
+      const age = ageMin >= 60 ? `${h}h${m > 0 ? ` ${m}m` : ""}` : `${ageMin}m`;
       const inRange = p.in_range ? "🟢 IN" : `🔴 OOR ${p.minutes_out_of_range ?? 0}m`;
-      const val = config.management.solMode ? `◎${p.total_value_usd ?? "?"}` : `$${p.total_value_usd ?? "?"}`;
-      const unclaimed = config.management.solMode ? `◎${p.unclaimed_fees_usd ?? "?"}` : `$${p.unclaimed_fees_usd ?? "?"}`;
-      const statusLabel = act.action === "INSTRUCTION" ? "HOLD (instruction)" : act.action;
-      let line = `**${p.pair}** | Age: ${p.age_minutes ?? "?"}m | Val: ${val} | Unclaimed: ${unclaimed} | PnL: ${p.pnl_pct ?? "?"}% | Yield: ${p.fee_per_tvl_24h ?? "?"}% | ${inRange} | ${statusLabel}`;
-      if (p.instruction) line += `\nNote: "${p.instruction}"`;
-      if (act.action === "CLOSE" && act.rule === "exit") line += `\n⚡ Trailing TP: ${act.reason}`;
-      if (act.action === "CLOSE" && act.rule && act.rule !== "exit") line += `\nRule ${act.rule}: ${act.reason}`;
-      if (act.action === "CLAIM") line += `\n→ Claiming fees`;
+      const val = `${cur}${Number(p.total_value_usd ?? 0).toFixed(2)}`;
+      const fees = `${cur}${Number(p.unclaimed_fees_usd ?? 0).toFixed(2)}`;
+      const pnlPct = p.pnl_pct != null ? `${Number(p.pnl_pct) >= 0 ? "+" : ""}${Number(p.pnl_pct).toFixed(1)}%` : "?%";
+      const yield_ = p.fee_per_tvl_24h != null ? `yield ${Number(p.fee_per_tvl_24h).toFixed(2)}%` : null;
+      const actionLabel = act.action === "INSTRUCTION" ? "HOLD" : act.action;
+      const meta = [age, val, `PnL ${pnlPct}`, `fees ${fees}`, yield_, inRange].filter(Boolean).join("  ·  ");
+      let line = `${p.pair}  ·  ${meta}  →  ${actionLabel}`;
+      if (p.instruction) line += `\n  📌 "${p.instruction}"`;
+      if (act.action === "CLOSE" && act.rule === "exit") line += `\n  ⚡ ${act.reason}`;
+      if (act.action === "CLOSE" && act.rule && act.rule !== "exit") line += `\n  Rule ${act.rule}: ${act.reason}`;
+      if (act.action === "CLAIM") line += `\n  → Claiming fees`;
       return line;
     });
 
@@ -455,9 +463,8 @@ export async function runManagementCycle({ silent = false } = {}) {
       ? needsAction.map(a => a.action === "INSTRUCTION" ? "EVAL instruction" : `${a.action}${a.reason ? ` (${a.reason})` : ""}`).join(", ")
       : "no action";
 
-    const cur = config.management.solMode ? "◎" : "$";
     mgmtReport = reportLines.join("\n\n") +
-      `\n\nSummary: 💼 ${positions.length} positions | ${cur}${totalValue.toFixed(4)} | fees: ${cur}${totalUnclaimed.toFixed(4)} | ${actionSummary}`;
+      `\n\n💼 ${positions.length} pos  ·  ${cur}${totalValue.toFixed(2)}  ·  fees ${cur}${totalUnclaimed.toFixed(2)}  →  ${actionSummary}`;
 
     // ── Call LLM only if action needed ──────────────────────────────
     const actionPositions = positionData.filter(p => {
@@ -1074,28 +1081,29 @@ async function telegramHandler(msg) {
       const { positions } = await getMyPositions({ force: true });
       if (idx < 0 || idx >= positions.length) { await sendMessage("Invalid number. Use /positions first."); return; }
       const pos = positions[idx];
-      await sendHTML(`⏳ <b>Closing ${pos.pair}...</b>`);
+      await sendHTML(`⏳ <b>Closing ${pos.pair}…</b>`);
       const result = await closePosition({ position_address: pos.position });
       if (result.success) {
         const cur = config.management.solMode ? "◎" : "$";
         const pnlUsd = Number(result.pnl_usd ?? 0);
+        const pnlPct = Number(result.pnl_pct ?? 0);
         const icon = pnlUsd >= 0 ? "🟢" : "🔴";
         const closeTxs = result.close_txs?.length ? result.close_txs : result.txs;
-        const claimNote = result.claim_txs?.length
-          ? `\n💎 Claim txs: <code>${result.claim_txs[0]?.slice(0, 16)}...</code>`
-          : "";
+        const feesUsd = Number(result.fees_earned_usd ?? 0);
+        const feesLine = feesUsd > 0 ? `\n💎 Fees: <b>+${cur}${feesUsd.toFixed(2)}</b>` : "";
+        const pnlSign = pnlUsd >= 0 ? "+" : "";
         await sendHTML(
           `${icon} <b>Closed — ${pos.pair}</b>\n` +
           `<code>──────────────────</code>\n` +
-          `💵 PnL: <b>${pnlUsd >= 0 ? "+" : ""}${cur}${Math.abs(pnlUsd).toFixed(2)}</b>\n` +
-          `📋 Tx: <code>${closeTxs?.[0]?.slice(0, 16) ?? "n/a"}...</code>` +
-          claimNote
+          `PnL: <b>${pnlSign}${cur}${Math.abs(pnlUsd).toFixed(2)}  (${pnlSign}${pnlPct.toFixed(2)}%)</b>` +
+          feesLine +
+          `\n📋 <code>${closeTxs?.[0]?.slice(0, 20) ?? "n/a"}</code>`
         );
         if (result.base_mint) {
           autoSwapBaseToken(result.base_mint, "/close command").catch(() => {});
         }
       } else {
-        await sendHTML(`❌ <b>Close failed</b> — ${pos.pair}\n<code>${JSON.stringify(result).slice(0, 200)}</code>`);
+        await sendHTML(`❌ <b>Close failed</b> — ${pos.pair}\n<i>${String(result.error ?? result.reason ?? "unknown").slice(0, 200)}</i>`);
       }
     } catch (e) { await sendMessage(`Error: ${e.message}`).catch(() => {}); }
     return;
