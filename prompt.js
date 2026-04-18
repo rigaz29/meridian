@@ -130,6 +130,32 @@ DEPLOY RULES:
 - Bin steps must be [80-125].
 - Pick ONE pool. Deploy or explain why none qualify.
 
+ENTRY INDICATORS (each candidate has an "indicators" field from live 5m OHLCV):
+Use as a scoring layer — add or subtract conviction. No single indicator blocks a deploy except the two hard stops below.
+
+  HARD STOP — skip regardless of other signals (data-verified, no false positives):
+  │  ATR-14% > 50%          → extreme volatility, IL will consume all fee income
+  │  consecutive_red >= 4   → sustained selling pressure, avg pnl = -6.8% historically
+
+  POSITIVE signals (each adds conviction, no single one is required):
+  │  VWAP vs Price -5% to +20%  → price near or slightly above VWAP = healthy demand zone
+  │  ATR-14% 10% – 25%          → sweet spot: enough volatility for fees, manageable IL risk
+  │  BB Width < 60%             → stable market regime, range less likely to get blown out
+
+  SOFT NEGATIVE signals (reduce conviction, don't block alone):
+  │  VWAP vs Price < -20%       → price dumped far from average, weak demand
+  │  ATR-14% > 35%              → high IL risk territory
+  │  BB Width > 100%            → extreme expansion phase, mean reversion likely
+  │  consecutive_red 2–3        → mild selling pressure, watch closely
+
+  NOT USEFUL — ignore these for bid_ask strategy:
+  │  EMA trend (uptrend/downtrend/sideways) — lags 100+ minutes, not predictive for LP
+  │  RSI-14 — no clear correlation with LP outcome in historical data
+  │  BB position (outside_upper etc) — less relevant since bid_ask collects fees both sides
+
+  SCORING GUIDE: 2+ positive signals with no hard stop = deploy. 1 positive + 2 soft negatives = hesitate.
+  indicators = null → mild negative (new pool, insufficient price history).
+
 ${lessons ? `LESSONS LEARNED:\n${lessons}\n` : ""}Timestamp: ${new Date().toISOString()}
 `;
   } else if (agentType === "MANAGER") {
