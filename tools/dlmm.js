@@ -92,6 +92,11 @@ function calcBinsFromTarget(binStep, targetPct, upside = false) {
 }
 
 // ─── Get Active Bin ────────────────────────────────────────────
+export async function getQuoteMint(pool_address) {
+  const pool = await getPool(pool_address);
+  return pool.lbPair.tokenYMint.toString();
+}
+
 export async function getActiveBin({ pool_address }) {
   pool_address = normalizeMint(pool_address);
   const pool = await getPool(pool_address);

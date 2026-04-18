@@ -413,6 +413,9 @@ All fields are optional — defaults shown. Edit `user-config.json`.
 | `trailingTriggerPct` | `3` | Activate trailing TP once PnL reaches this % |
 | `trailingDropPct` | `1.5` | Exit when PnL drops this % from confirmed peak |
 | `minFeePerTvl24h` | `7` | Close if fee/TVL yield falls below this % (after 60 min) |
+| `spotMaxHoldMinutes` | `150` | Maximum hold time for spot positions in minutes — closed after this regardless of PnL. `0` = disabled |
+| `oorCooldownTriggerCount` | `3` | Number of consecutive OOR closes before pool/token is put on cooldown |
+| `oorCooldownHours` | `12` | How long pool and token are on cooldown after repeated OOR closes (hours) |
 
 ### Strategy
 
@@ -440,6 +443,40 @@ All fields are optional — defaults shown. Edit `user-config.json`.
 | `generalModel` | `openai/gpt-oss-20b:free` | LLM for REPL / chat |
 
 > Override model at runtime: `node cli.js config set screeningModel anthropic/claude-opus-4-5`
+
+---
+
+## Deploy safety checks
+
+Before `deploy_position` executes, `executor.js` runs these hard guards (in order):
+
+| Check | Behaviour |
+|---|---|
+| `bin_step` in range | Must be within `[minBinStep, maxBinStep]` |
+| Position count | Must be below `maxPositions` (force-fresh scan, no cache) |
+| Duplicate pool | Rejects if wallet already has an open position in the same pool |
+| Duplicate base token | Rejects if the same base mint is held in any other pool |
+| Non-SOL quote token | Rejects pools whose token Y is not WSOL (e.g. USDC-quoted pools) — Meridian deploys SOL only |
+| `amount_x > 0` | Strips `amount_y`/`amount_sol` — tokenX-only deploy, no SOL needed |
+| SOL balance | Must cover `amount_y + gasReserve` (skipped for tokenX-only deploys) |
+| `blockedLaunchpads` | Enforced in `getTopCandidates()` before the LLM sees candidates |
+
+Pool and token cooldowns are checked in `screening.js` (filtered before the LLM sees candidates) **and** again in `dlmm.js` at deploy time as a fallback.
+
+---
+
+## Position close rules
+
+Evaluated every management cycle (deterministic, no LLM):
+
+| Rule | Condition | Config key |
+|---|---|---|
+| **2b** OOR downside IL stop | Price below lower bin for ≥ N minutes | `oorDownsideWaitMinutes` (default 5m) |
+| **2** Take profit | PnL ≥ X% (suppressed when trailing TP is active) | `takeProfitFeePct` |
+| **3** Pumped far above range | `active_bin > upper_bin + N` | `outOfRangeBinsToClose` |
+| **4** Stale above range | `active_bin > upper_bin` for ≥ N minutes | `outOfRangeWaitMinutes` |
+| **5** Low yield | `fee_per_tvl_24h < minFeePerTvl24h` after 60 min | `minFeePerTvl24h` |
+| **6** Spot max hold | Spot position held for ≥ N minutes | `spotMaxHoldMinutes` (default 150m) |
 
 ---
 

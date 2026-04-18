@@ -326,6 +326,12 @@ export async function runManagementCycle({ silent = false } = {}) {
         actionMap.set(p.position, { action: "CLOSE", rule: 5, reason: "low yield" });
         continue;
       }
+      // Rule 6: spot max hold time exceeded
+      const spotMaxHold = config.management.spotMaxHoldMinutes;
+      if (spotMaxHold > 0 && tracked?.strategy === "spot" && (p.age_minutes ?? 0) >= spotMaxHold) {
+        actionMap.set(p.position, { action: "CLOSE", rule: 6, reason: `spot max hold time (${spotMaxHold}m) exceeded` });
+        continue;
+      }
       // Claim rule
       if ((p.unclaimed_fees_usd ?? 0) >= config.management.minClaimAmount) {
         actionMap.set(p.position, { action: "CLAIM" });

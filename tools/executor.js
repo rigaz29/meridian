@@ -8,6 +8,7 @@ import {
   claimFees,
   closePosition,
   searchPools,
+  getQuoteMint,
 } from "./dlmm.js";
 import { getWalletBalances, swapToken } from "./wallet.js";
 import { studyTopLPers } from "./study.js";
@@ -425,6 +426,16 @@ async function runSafetyChecks(name, args) {
             reason: `Already holding base token ${args.base_mint} in another pool. One position per token only.`,
           };
         }
+      }
+
+      // Block non-SOL quote tokens — wallet deploys SOL only
+      const WSOL = "So11111111111111111111111111111111111111112";
+      const quoteMint = await getQuoteMint(args.pool_address);
+      if (quoteMint !== WSOL) {
+        return {
+          pass: false,
+          reason: `Pool quote token is not SOL (got ${quoteMint.slice(0, 8)}...). Meridian only deploys into SOL-quoted pools.`,
+        };
       }
 
       // Check amount limits
