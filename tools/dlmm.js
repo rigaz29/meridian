@@ -92,25 +92,21 @@ function calcBinsFromTarget(binStep, targetPct, upside = false) {
   return Math.ceil(Math.abs(Math.log(ratio)) / Math.log(1 + binStep / 10000));
 }
 
-// Stepped bins_below from empirical data (167 bid_ask positions) + high-vol extension:
+// Stepped bins_below from empirical data + downside OOR widening (+4 bins all buckets):
 //
-//  bs<125:  vol<2→44 | vol<4→48 | vol<6→50 | vol<7→52 | vol≥7→54
-//  bs≥125:  vol<6→35 | vol≥6→38
+//  bs<125:  vol<2→48 | vol<4→52 | vol<6→54 | vol<7→56 | vol≥7→58
+//  bs≥125:  vol<6→40 | vol≥6→44
 //
-// vol<4 data: bins=50 at vol 3-4 avg -1.17% vs bins=48 avg +0.75% (15 pos).
-// vol 4-6: bins=50 performs well (avg +1.27%, 80% win, n=41) — no change needed.
-// vol 6-7: positions go OOR ~70% of the time at bins=50 (avg eff=33%) but stay
-//   profitable via reversal. +2 bins (+1.2% coverage) improves chance of staying
-//   in range during brief dips like Picante (vol=6.92, OOR 10m then reversed).
-// vol ≥7: +4 bins (+2.4% coverage) — deeper drops expected, same reversal logic.
-// Hard cap at 54/38 — bins=60+ showed issues in mixed-vol data.
+// +4 applied across all buckets to reduce downside OOR frequency.
+// bs<125 capped at 58 — bins≥60 showed liquidity dilution issues in prior data.
+// bs≥125 raised from 35/38 to 40/44 for additional downside cushion.
 function steppedBinsBelow(vol, binStep) {
-  if (binStep >= 125) return vol >= 6 ? 38 : 35;
-  if (vol < 2) return 44;
-  if (vol < 4) return 48;
-  if (vol < 6) return 50;
-  if (vol < 7) return 52;
-  return 54;
+  if (binStep >= 125) return vol >= 6 ? 44 : 40;
+  if (vol < 2) return 48;
+  if (vol < 4) return 52;
+  if (vol < 6) return 54;
+  if (vol < 7) return 56;
+  return 58;
 }
 
 // ─── Get Active Bin ────────────────────────────────────────────
