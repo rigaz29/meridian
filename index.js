@@ -386,8 +386,8 @@ export async function runManagementCycle({ silent = false } = {}) {
         return false;
       })();
 
-      // Rule 2: take profit (skip if trailing TP is active — trailing handles the exit)
-      if (!pnlSuspect && !tracked?.trailing_active && p.pnl_pct != null && p.pnl_pct >= config.management.takeProfitFeePct) {
+      // Rule 2: take profit ceiling — fires even if trailing is active (hard ceiling above trailingTriggerPct)
+      if (!pnlSuspect && p.pnl_pct != null && p.pnl_pct >= config.management.takeProfitFeePct) {
         actionMap.set(p.position, { action: "CLOSE", rule: 2, reason: "take profit" });
         continue;
       }

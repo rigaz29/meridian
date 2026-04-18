@@ -132,20 +132,20 @@ Two exit mechanisms coexist in `index.js`:
 | Static TP | `takeProfitFeePct` | 5% | PnL rises to X% |
 | Trailing TP | `trailingTriggerPct` / `trailingDropPct` | 3% / 1.5% | PnL drops Y% from confirmed peak |
 
-**Rule**: Once `trailing_active = true` (peak PnL ≥ `trailingTriggerPct`), **static TP is suppressed** — Rule 2 in management cycle checks `!tracked?.trailing_active` before firing. Trailing handles all exits from that point.
+**Rule**: `takeProfitFeePct` is a **hard ceiling** — fires regardless of whether trailing is active. Once `trailing_active = true` (peak PnL ≥ `trailingTriggerPct`), trailing handles exits below the ceiling. If PnL reaches `takeProfitFeePct`, static TP closes immediately.
 
 **Interaction examples:**
 
 ```
-trailingTriggerPct=3%, trailingDropPct=1.5%, takeProfitFeePct=15%
+trailingTriggerPct=5%, trailingDropPct=1.5%, takeProfitFeePct=8%
 
-Token pump cepat:  0% → 3% (trailing aktif) → 8% → 6.5% (drop 1.5%) → EXIT via trailing
+Token pump cepat:  0% → 5% (trailing aktif) → 7% → 5.5% (drop 1.5%) → EXIT via trailing
 Token pump lambat: 0% → 2% → 2% → OOR → keluar via Rule 4 (trailing tidak pernah aktif)
-Token pump parabolic: 0% → 3% → 15% EXIT via static TP ceiling (sebelum sempat drop)
+Token pump ke ceiling: 0% → 5% (trailing aktif) → 8% → EXIT via static TP ceiling
 ```
 
 **Rekomendasi config:**
-- Token volatile/meme: set `takeProfitFeePct` tinggi (12–20%) sebagai emergency ceiling, andalkan trailing
+- Set `takeProfitFeePct` > `trailingTriggerPct` — static TP jadi hard ceiling, trailing handle exits di bawah ceiling
 - Token stabil/fee-heavy: set `trailingTakeProfit: false`, andalkan static TP saja
 - Jangan set `takeProfitFeePct` < `trailingTriggerPct` — static TP akan fire sebelum trailing sempat aktif
 
