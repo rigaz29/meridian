@@ -19,7 +19,7 @@ import {
   syncOpenPositions,
 } from "../state.js";
 import { recordPerformance } from "../lessons.js";
-import { isBaseMintOnCooldown, isPoolOnCooldown, computeStrategyRecommendation } from "../pool-memory.js";
+import { isBaseMintOnCooldown, isPoolOnCooldown } from "../pool-memory.js";
 import { normalizeMint } from "./wallet.js";
 
 // ─── Lazy SDK loader ───────────────────────────────────────────
@@ -91,6 +91,17 @@ function calcBinsFromTarget(binStep, targetPct, upside = false) {
   return Math.ceil(Math.abs(Math.log(ratio)) / Math.log(1 + binStep / 10000));
 }
 
+// Stepped bins_below based on empirical data (167 bid_ask positions):
+// vol<2→44, vol<4→48, vol≥4→50 for bs<125; always 35 for bs≥125.
+// Coverage delta 48→50 is only 1.2% price — negligible — but bins=50 at vol 3-4
+// underperforms (avg -1.17%) vs bins=48 (avg +0.75%) due to longer in-range IL exposure.
+function steppedBinsBelow(vol, binStep) {
+  if (binStep >= 125) return 35;
+  if (vol < 2) return 44;
+  if (vol < 4) return 48;
+  return 50;
+}
+
 // ─── Get Active Bin ────────────────────────────────────────────
 export async function getActiveBin({ pool_address }) {
   pool_address = normalizeMint(pool_address);
@@ -127,30 +138,17 @@ export async function deployPosition({
   entry_smart_money_buy,
 }) {
   pool_address = normalizeMint(pool_address);
-  // Use provided strategy, else compute from pool history + signals, else fall back to config
-  const strategyRec = !strategy
-    ? computeStrategyRecommendation(pool_address, {
-        smart_money_buy: entry_smart_money_buy ?? false,
-        volatility,
-        fee_tvl_ratio,
-        price_change_pct: entry_price_change_pct ?? null,
-      })
-    : null;
-  if (strategyRec) {
-    log("deploy", `Strategy auto-selected: ${strategyRec.strategy} (${strategyRec.confidence}) — ${strategyRec.reason}`);
-  }
-  const activeStrategy = strategy || strategyRec?.strategy || config.strategy.strategy;
+  const activeStrategy = strategy || config.strategy.strategy;
 
   const vol = (typeof volatility === "number" && volatility >= 0) ? volatility : 2.5;
-  const targetDownside = Math.min(0.50, 0.32 + (vol / 5) * 0.09);  // vol=0→32%, vol=2.5→36.5%, vol=5→41%, cap=50%
-  const targetUpside   = Math.min(0.35, 0.15 + (vol / 5) * 0.15);  // vol=0→15%, vol=2.5→22.5%, vol=5→30%
+  const targetUpside = Math.min(0.35, 0.15 + (vol / 5) * 0.15);  // vol=0→15%, vol=2.5→22.5%, vol=5→30%
 
   // Preliminary estimate using provided bin_step (used for DRY_RUN and wide-range check)
   const estBinStep = bin_step ?? 100;
-  const estMaxBinsBelow = estBinStep >= 125 ? 35 : estBinStep >= 100 ? 50 : 50;
+  const estSteppedBelow = steppedBinsBelow(vol, estBinStep);
   const activeBinsBelow = bins_below != null
-    ? Math.min(bins_below, estMaxBinsBelow)
-    : Math.min(estMaxBinsBelow, calcBinsFromTarget(estBinStep, targetDownside));
+    ? Math.min(bins_below, estSteppedBelow)
+    : estSteppedBelow;
   const isSolOnly = !amount_x || amount_x <= 0;
   const activeBinsAbove = (activeStrategy === "bid_ask" || isSolOnly)
     ? 0
@@ -189,12 +187,11 @@ export async function deployPosition({
   const activeBin = await pool.getActiveBin();
 
   // Recalculate bins using actual pool bin_step (unless explicitly provided by caller)
-  // targetDownside/targetUpside already computed above using volatility
   const actualBinStep = pool.lbPair.binStep;
-  const maxBinsBelow = actualBinStep >= 125 ? 35 : actualBinStep >= 100 ? 50 : 50;
+  const actualSteppedBelow = steppedBinsBelow(vol, actualBinStep);
   const finalBinsBelow = bins_below != null
-    ? Math.min(bins_below, maxBinsBelow)
-    : Math.min(maxBinsBelow, calcBinsFromTarget(actualBinStep, targetDownside));
+    ? Math.min(bins_below, actualSteppedBelow)
+    : actualSteppedBelow;
   const finalBinsAbove = (activeStrategy === "bid_ask" || (amount_x ?? 0) <= 0)
     ? 0
     : (bins_above != null ? bins_above : calcBinsFromTarget(actualBinStep, targetUpside, true));
