@@ -405,8 +405,24 @@ All fields are optional — defaults shown. Edit `user-config.json`.
 | `maxDeployAmount` | `50` | Maximum SOL cap per position |
 | `gasReserve` | `0.2` | Minimum SOL to keep for gas |
 | `minSolToOpen` | `0.55` | Minimum wallet SOL before opening |
-| `outOfRangeWaitMinutes` | `30` | Minutes OOR before acting |
-| `stopLossPct` | `-15` | Close position if price drops by this % |
+| `outOfRangeWaitMinutes` | `30` | Minutes OOR upside before closing (price pumped above range) |
+| `oorDownsideWaitMinutes` | `5` | Minutes OOR downside before closing (price below lower bin — limits IL) |
+| `stopLossPct` | `-10` | Close position if PnL drops to this % |
+| `takeProfitFeePct` | `5` | Close position if PnL reaches this % (static TP, suppressed when trailing active) |
+| `trailingTakeProfit` | `true` | Enable trailing take-profit |
+| `trailingTriggerPct` | `3` | Activate trailing TP once PnL reaches this % |
+| `trailingDropPct` | `1.5` | Exit when PnL drops this % from confirmed peak |
+| `minFeePerTvl24h` | `7` | Close if fee/TVL yield falls below this % (after 60 min) |
+
+### Strategy
+
+| Field | Default | Description |
+|---|---|---|
+| `targetDownsidePctBidAsk` | `0.30` | Downside price coverage for bid_ask positions (30% below active bin) |
+| `targetDownsidePctSpot` | `0.22` | Downside price coverage for spot positions |
+| `targetUpsidePct` | `0.22` | Upside price coverage for spot positions (symmetric with downside) |
+
+> **Strategy selection:** `bid_ask` is the default for all candidates. `spot` is used only when volatility < 2.5 AND fee/TVL is stable (clear fee-farming pool with no directional movement). Data-backed: bid_ask + vol ≥ 3 = 86% win rate across historical positions.
 
 ### Schedule
 
@@ -423,40 +439,7 @@ All fields are optional — defaults shown. Edit `user-config.json`.
 | `screeningModel` | `openai/gpt-oss-20b:free` | LLM for screening cycles |
 | `generalModel` | `openai/gpt-oss-20b:free` | LLM for REPL / chat |
 
-<<<<<<< HEAD
 > Override model at runtime: `node cli.js config set screeningModel anthropic/claude-opus-4-5`
-
----
-
-## Telegram
-
-**Setup:**
-
-1. Create a bot via [@BotFather](https://t.me/BotFather) and copy the token
-2. Add `TELEGRAM_BOT_TOKEN=<token>` to your `.env`
-3. Set the exact Telegram chat and allowed controller user IDs in `.env`
-
-Meridian no longer auto-registers the first chat for safety. You must set:
-
-```env
-TELEGRAM_BOT_TOKEN=<token>
-TELEGRAM_CHAT_ID=<target chat id>
-TELEGRAM_ALLOWED_USER_IDS=<comma-separated Telegram user ids allowed to control the bot>
-```
-
-Security notes:
-- If `TELEGRAM_CHAT_ID` is not set, inbound Telegram control is ignored.
-- If the target chat is a group/supergroup and `TELEGRAM_ALLOWED_USER_IDS` is empty, inbound control is ignored.
-- Notifications still go to the configured chat, but command/control is limited to the allowed user IDs.
-
-**Notifications sent:**
-- After every management cycle: full agent report (reasoning + decisions)
-- After every screening cycle: full agent report (what it found, whether it deployed)
-- When a position goes out of range past `outOfRangeWaitMinutes`
-- On deploy: pair, amount, position address, tx hash
-- On close: pair and PnL
-
-You can also chat with the agent via Telegram using the same free-form interface as the REPL: `"check wallet 7tB8..."`, `"who are the top LPers in pool ABC..."`, `"close all positions"`, etc. Only explicitly allowed Telegram user IDs can issue commands.
 
 ---
 
