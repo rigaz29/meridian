@@ -91,15 +91,25 @@ function calcBinsFromTarget(binStep, targetPct, upside = false) {
   return Math.ceil(Math.abs(Math.log(ratio)) / Math.log(1 + binStep / 10000));
 }
 
-// Stepped bins_below based on empirical data (167 bid_ask positions):
-// vol<2→44, vol<4→48, vol≥4→50 for bs<125; always 35 for bs≥125.
-// Coverage delta 48→50 is only 1.2% price — negligible — but bins=50 at vol 3-4
-// underperforms (avg -1.17%) vs bins=48 (avg +0.75%) due to longer in-range IL exposure.
+// Stepped bins_below from empirical data (167 bid_ask positions) + high-vol extension:
+//
+//  bs<125:  vol<2→44 | vol<4→48 | vol<6→50 | vol<7→52 | vol≥7→54
+//  bs≥125:  vol<6→35 | vol≥6→38
+//
+// vol<4 data: bins=50 at vol 3-4 avg -1.17% vs bins=48 avg +0.75% (15 pos).
+// vol 4-6: bins=50 performs well (avg +1.27%, 80% win, n=41) — no change needed.
+// vol 6-7: positions go OOR ~70% of the time at bins=50 (avg eff=33%) but stay
+//   profitable via reversal. +2 bins (+1.2% coverage) improves chance of staying
+//   in range during brief dips like Picante (vol=6.92, OOR 10m then reversed).
+// vol ≥7: +4 bins (+2.4% coverage) — deeper drops expected, same reversal logic.
+// Hard cap at 54/38 — bins=60+ showed issues in mixed-vol data.
 function steppedBinsBelow(vol, binStep) {
-  if (binStep >= 125) return 35;
+  if (binStep >= 125) return vol >= 6 ? 38 : 35;
   if (vol < 2) return 44;
   if (vol < 4) return 48;
-  return 50;
+  if (vol < 6) return 50;
+  if (vol < 7) return 52;
+  return 54;
 }
 
 // ─── Get Active Bin ────────────────────────────────────────────
