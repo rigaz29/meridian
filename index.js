@@ -135,8 +135,13 @@ function schedulePeakConfirmation(positionAddress) {
   _peakConfirmTimers.set(positionAddress, timer);
 }
 
-function scheduleTrailingDropConfirmation(positionAddress) {
-  if (!positionAddress || _trailingDropConfirmTimers.has(positionAddress)) return;
+function scheduleTrailingDropConfirmation(positionAddress, { restart = false } = {}) {
+  if (!positionAddress) return;
+  if (_trailingDropConfirmTimers.has(positionAddress)) {
+    if (!restart) return;
+    clearTimeout(_trailingDropConfirmTimers.get(positionAddress));
+    _trailingDropConfirmTimers.delete(positionAddress);
+  }
 
   const timer = setTimeout(async () => {
     _trailingDropConfirmTimers.delete(positionAddress);
@@ -327,9 +332,8 @@ export async function runManagementCycle({ silent = false } = {}) {
       const exit = updatePnlAndCheckExits(p.position, p, config.management);
       if (exit) {
         if (exit.action === "TRAILING_TP" && exit.needs_confirmation) {
-          if (queueTrailingDropConfirmation(p.position, exit.peak_pnl_pct, exit.current_pnl_pct, config.management.trailingDropPct)) {
-            scheduleTrailingDropConfirmation(p.position);
-          }
+          const queued = queueTrailingDropConfirmation(p.position, exit.peak_pnl_pct, exit.current_pnl_pct, config.management.trailingDropPct);
+          if (queued) scheduleTrailingDropConfirmation(p.position, { restart: true });
           continue;
         }
         if (exit.action === "STOP_LOSS" && exit.needs_confirmation) {
@@ -934,9 +938,8 @@ Summarize the current portfolio health, total fees earned, and performance of al
         const exit = updatePnlAndCheckExits(p.position, p, config.management);
         if (exit) {
           if (exit.action === "TRAILING_TP" && exit.needs_confirmation) {
-            if (queueTrailingDropConfirmation(p.position, exit.peak_pnl_pct, exit.current_pnl_pct, config.management.trailingDropPct)) {
-              scheduleTrailingDropConfirmation(p.position);
-            }
+            const queued = queueTrailingDropConfirmation(p.position, exit.peak_pnl_pct, exit.current_pnl_pct, config.management.trailingDropPct);
+            if (queued) scheduleTrailingDropConfirmation(p.position, { restart: true });
             continue;
           }
           if (exit.action === "STOP_LOSS" && exit.needs_confirmation) {
