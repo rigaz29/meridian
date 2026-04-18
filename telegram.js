@@ -388,7 +388,6 @@ export function stopPolling() {
 // ─── Notification helpers ────────────────────────────────────────
 
 export async function notifyDeploy({ pair, amountSol, position, tx, priceRange, binStep, baseFee, strategy }) {
-  if (hasActiveLiveMessage()) return;
 
   const meta = [
     amountSol != null ? `◎ ${Number(amountSol).toFixed(3)} SOL` : null,
@@ -415,7 +414,6 @@ export async function notifyClose({
   pair, pnlUsd, pnlPct, feesEarned, reason, rangeEfficiency,
   ageMinutes, deploySol, depositedUsd, withdrawnUsd, positionAddress,
 }) {
-  if (hasActiveLiveMessage()) return;
 
   const pnlVal = Number(pnlUsd ?? 0);
   const profit = pnlVal >= 0;
