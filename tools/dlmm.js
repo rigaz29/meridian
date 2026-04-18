@@ -20,6 +20,7 @@ import {
 } from "../state.js";
 import { recordPerformance } from "../lessons.js";
 import { isBaseMintOnCooldown, isPoolOnCooldown } from "../pool-memory.js";
+import { computeTechnicalIndicators, findNearestSupport, fetchOHLCV } from "../meteora-api.js";
 import { normalizeMint } from "./wallet.js";
 
 // ─── Lazy SDK loader ───────────────────────────────────────────
@@ -199,16 +200,9 @@ export async function deployPosition({
   // Recalculate bins using actual pool bin_step (unless explicitly provided by caller)
   const actualBinStep = pool.lbPair.binStep;
   const actualSteppedBelow = steppedBinsBelow(vol, actualBinStep);
-  const finalBinsBelow = bins_below != null
-    ? Math.min(bins_below, actualSteppedBelow)
-    : actualSteppedBelow;
   const finalBinsAbove = (activeStrategy === "bid_ask" || (amount_x ?? 0) <= 0)
     ? 0
     : (bins_above != null ? bins_above : calcBinsFromTarget(actualBinStep, targetUpside, true));
-
-  // Range calculation
-  const minBinId = activeBin.binId - finalBinsBelow;
-  const maxBinId = activeBin.binId + finalBinsAbove;
 
   const strategyMap = {
     spot: StrategyType.Spot,
@@ -236,6 +230,46 @@ export async function deployPosition({
     totalXLamports = new BN(Math.floor(finalAmountX * Math.pow(10, decimals)));
   }
 
+  // Fetch OHLCV-based signals: TA indicators + nearest demand level
+  let indicators_at_entry = null;
+  let nearestSupport = null;
+  try {
+    const now = Math.floor(Date.now() / 1000);
+    const [indResult, ohlcv] = await Promise.all([
+      computeTechnicalIndicators(pool_address),
+      fetchOHLCV(pool_address, { startTime: now - 100 * 300, endTime: now, timeframe: "5m" }),
+    ]);
+    indicators_at_entry = indResult;
+    if (Array.isArray(ohlcv) && ohlcv.length >= 10) {
+      nearestSupport = findNearestSupport(ohlcv);
+    }
+    if (indicators_at_entry) log("deploy", `Entry indicators: RSI=${indicators_at_entry.rsi_14} EMA=${indicators_at_entry.ema_trend} BB=${indicators_at_entry.bb_position}`);
+    if (nearestSupport) log("deploy", `Nearest demand: -${nearestSupport.distance_pct}% (${nearestSupport.swing_count} swing lows, price=${nearestSupport.price})`);
+  } catch (e) {
+    log("deploy_warn", `Entry indicators/support failed: ${e.message}`);
+  }
+
+  // Finalize bins_below — extend to nearest demand level when it's further than formula
+  // Cap: formula cap + 10 bins (prevents over-extension on distant support)
+  // Max demand distance: 45% — beyond this the support is too far to be useful
+  const MAX_DEMAND_DIST_PCT = 45;
+  const demandExtCap = actualBinStep >= 125 ? 48 : 60;
+  let finalBinsBelow = actualSteppedBelow;
+
+  if (nearestSupport && nearestSupport.distance_pct > 0 && nearestSupport.distance_pct <= MAX_DEMAND_DIST_PCT) {
+    const demandBins = calcBinsFromTarget(actualBinStep, nearestSupport.distance_pct / 100);
+    if (demandBins > finalBinsBelow) {
+      const extended = Math.min(demandBins, demandExtCap);
+      log("deploy", `bins_below extended: ${finalBinsBelow} → ${extended} to cover demand at -${nearestSupport.distance_pct}%`);
+      finalBinsBelow = extended;
+    }
+  }
+
+  // LLM override — still respected but capped at the (potentially extended) value
+  if (bins_below != null) finalBinsBelow = Math.min(bins_below, finalBinsBelow);
+
+  const minBinId = activeBin.binId - finalBinsBelow;
+  const maxBinId = activeBin.binId + finalBinsAbove;
   const totalBins = finalBinsBelow + finalBinsAbove;
   const isWideRange = totalBins > 69;
   const newPosition = Keypair.generate();
@@ -302,6 +336,10 @@ export async function deployPosition({
     log("deploy", `SUCCESS — ${txHashes.length} tx(s): ${txHashes[0]}`);
 
     _positionsCacheAt = 0;
+    // Attach nearest support to indicators so it's persisted in state + lessons
+    if (indicators_at_entry && nearestSupport) {
+      indicators_at_entry.nearest_support_pct = nearestSupport.distance_pct;
+    }
     // Build entry signal snapshot for backtest/review logging
     const entrySignals = {};
     if (entry_price_change_pct  != null) entrySignals.price_change_pct  = entry_price_change_pct;
@@ -323,6 +361,7 @@ export async function deployPosition({
       active_bin: activeBin.binId,
       initial_value_usd,
       signal_snapshot: Object.keys(entrySignals).length > 0 ? entrySignals : null,
+      indicators_at_entry,
     });
 
     const activePrice = parseFloat(activeBin.price);
@@ -1015,6 +1054,14 @@ export async function closePosition({ position_address, reason }) {
         }
       }
 
+      let indicators_at_exit = null;
+      try {
+        indicators_at_exit = await computeTechnicalIndicators(poolAddress);
+        if (indicators_at_exit) log("close", `Exit indicators: RSI=${indicators_at_exit.rsi_14} EMA=${indicators_at_exit.ema_trend} BB=${indicators_at_exit.bb_position}`);
+      } catch (e) {
+        log("close_warn", `Exit indicators failed: ${e.message}`);
+      }
+
       await recordPerformance({
         position: position_address,
         pool: poolAddress,
@@ -1033,6 +1080,8 @@ export async function closePosition({ position_address, reason }) {
         minutes_held: minutesHeld,
         close_reason: reason || "agent decision",
         signal_snapshot: tracked.signal_snapshot || null,
+        indicators_at_entry: tracked.indicators_at_entry || null,
+        indicators_at_exit: indicators_at_exit || null,
         deployed_at: tracked.deployed_at,
         base_mint: tracked.base_mint || null,
       });
