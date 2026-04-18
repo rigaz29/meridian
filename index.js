@@ -289,6 +289,7 @@ async function maybeRunMissedBriefing() {
 function stopCronJobs() {
   for (const task of _cronTasks) task.stop();
   if (_cronTasks._pnlPollInterval) clearInterval(_cronTasks._pnlPollInterval);
+  if (_promptInterval) { clearInterval(_promptInterval); _promptInterval = null; }
   _cronTasks = [];
 }
 
@@ -1018,6 +1019,7 @@ const _telegramQueue = []; // queued messages received while agent was busy
 const sessionHistory = []; // persists conversation across REPL turns
 const MAX_HISTORY = 20;    // keep last 20 messages (10 exchanges)
 let _ttyInterface = null;
+let _promptInterval = null;
 
 function appendHistory(userMsg, assistantMsg) {
   sessionHistory.push({ role: "user", content: userMsg });
@@ -1177,7 +1179,7 @@ if (isTTY) {
   _ttyInterface = rl;
 
   // Update prompt countdown every 10 seconds
-  setInterval(() => {
+  _promptInterval = setInterval(() => {
     if (!busy) {
       rl.setPrompt(buildPrompt());
       rl.prompt(true); // true = preserve current line
