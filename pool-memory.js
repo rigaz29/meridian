@@ -42,7 +42,14 @@ function isOorCloseReason(reason) {
 }
 
 function isLowYieldCloseReason(reason) {
-  return String(reason || "").toLowerCase().includes("low yield");
+  const text = String(reason || "").toLowerCase();
+  if (!text.includes("low yield")) return false;
+  // Exclude if a stronger primary reason is present — "low yield" is just context
+  if (text.includes("out of range") || text.includes("oor") ||
+      text.includes("pumped") || text.includes("above range") ||
+      text.includes("velocity sl") || text.includes("stop loss") ||
+      text.includes("trailing")) return false;
+  return true;
 }
 
 function isSlCloseReason(reason) {
