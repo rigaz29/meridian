@@ -901,15 +901,20 @@ Summarize the current portfolio health, total fees earned, and performance of al
           const now = Date.now();
           const windowMs = (config.management.pnlVelocityWindowSec ?? 90) * 1000;
           const hist = _pnlHistory.get(p.position) || [];
-          const trimmed = hist.filter(h => now - h.ts < windowMs * 2);
+          // Retain enough history to cover at least 2 management cycles so entries aren't pruned between checks
+          const mgmtIntervalMs = (config.management.managementIntervalMin ?? 10) * 60_000;
+          const retainMs = Math.max(windowMs * 2, mgmtIntervalMs * 2 + windowMs);
+          const trimmed = hist.filter(h => now - h.ts < retainMs);
           trimmed.push({ ts: now, pnl_pct: p.pnl_pct });
           _pnlHistory.set(p.position, trimmed);
 
           const velocityThreshold = config.management.pnlVelocitySLPct ?? 5;
           const minAge = config.management.minAgeBeforeSL ?? 7;
           const windowStart = now - windowMs;
-          const oldest = trimmed.find(h => h.ts >= windowStart);
-          if (velocityThreshold > 0 && oldest && oldest !== trimmed[trimmed.length - 1] && (p.age_minutes ?? 0) >= minAge) {
+          // Use oldest entry within window; if none (management interval > window), fall back to previous reading
+          const inWindow = trimmed.filter((h, i) => h.ts >= windowStart && i < trimmed.length - 1);
+          const oldest = inWindow.length > 0 ? inWindow[0] : (trimmed.length > 1 ? trimmed[trimmed.length - 2] : null);
+          if (velocityThreshold > 0 && oldest && (p.age_minutes ?? 0) >= minAge) {
             const drop = oldest.pnl_pct - p.pnl_pct;
             if (drop >= velocityThreshold) {
               if (_closingPositions.has(p.position)) continue; // already being closed
