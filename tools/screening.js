@@ -151,6 +151,22 @@ export async function getTopCandidates({ limit = 10 } = {}) {
     })
     .slice(0, limit);
 
+  // Volatility hard filter
+  const maxVol = config.screening.maxVolatility;
+  if (maxVol != null) {
+    const before = eligible.length;
+    eligible.splice(0, eligible.length, ...eligible.filter((p) => {
+      if (p.volatility == null) return true; // no data → don't filter
+      if (p.volatility > maxVol) {
+        log("screening", `Volatility filter: dropped ${p.name} — volatility ${p.volatility} > max ${maxVol}`);
+        pushFilteredReason(filteredOut, p, `volatility ${p.volatility} > max ${maxVol}`);
+        return false;
+      }
+      return true;
+    }));
+    if (eligible.length < before) log("screening", `Volatility filter removed ${before - eligible.length} pool(s)`);
+  }
+
   if (config.screening.avoidPvpSymbols && eligible.length > 0) {
     await enrichPvpRisk(eligible);
     if (config.screening.blockPvpSymbols) {

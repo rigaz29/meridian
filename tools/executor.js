@@ -160,6 +160,7 @@ const toolMap = {
       maxTop10Pct: ["screening", "maxTop10Pct"],
       minTokenAgeHours: ["screening", "minTokenAgeHours"],
       maxTokenAgeHours: ["screening", "maxTokenAgeHours"],
+      maxVolatility: ["screening", "maxVolatility"],
       athFilterPct:     ["screening", "athFilterPct"],
       minFeePerTvl24h: ["management", "minFeePerTvl24h"],
       // management
@@ -476,6 +477,15 @@ async function runSafetyChecks(name, args) {
         return {
           pass: false,
           reason: `bin_step ${args.bin_step} is outside the allowed range of [${minStep}-${maxStep}].`,
+        };
+      }
+
+      // Reject pools with volatility above configured maximum
+      const maxVol = config.screening.maxVolatility;
+      if (maxVol != null && args.volatility != null && args.volatility > maxVol) {
+        return {
+          pass: false,
+          reason: `Pool volatility ${args.volatility} exceeds maxVolatility ${maxVol}. Deploy blocked.`,
         };
       }
 

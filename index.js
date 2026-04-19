@@ -977,6 +977,9 @@ Summarize the current portfolio health, total fees earned, and performance of al
             }
             continue;
           }
+          if (exit.action === "LOW_YIELD_PENDING") {
+            continue;
+          }
           const cooldownMs = config.schedule.managementIntervalMin * 60 * 1000;
           const sinceLastTrigger = Date.now() - _pollTriggeredAt;
           if (sinceLastTrigger >= cooldownMs) {

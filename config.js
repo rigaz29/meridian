@@ -57,6 +57,7 @@ export const config = {
     athFilterPct:       u.athFilterPct       ?? null, // e.g. -20 = only deploy if price is >= 20% below ATH
     maxPriceChangePct:  u.maxPriceChangePct  ?? null, // e.g. 5 = skip pools where price_change_pct > 5% (avoid entering at pump peak); null = disabled
     maxPriceVolatility: u.maxPriceVolatility ?? 50,   // max % price swing during position (auto-evolved)
+    maxVolatility:      u.maxVolatility      ?? null, // max pool volatility score from Meteora API; null = disabled
   },
 
   // ─── Position Management ────────────────
@@ -72,7 +73,7 @@ export const config = {
     stopLossPct:           u.stopLossPct           ?? u.emergencyPriceDropPct ?? -20,
     minAgeBeforeSL:        u.minAgeBeforeSL        ?? 7,   // minutes before stop loss can trigger
     spotMaxHoldMinutes:    u.spotMaxHoldMinutes    ?? 150, // max hold for spot positions (0=disabled)
-pnlVelocitySLPct:      u.pnlVelocitySLPct      ?? 5,   // close if PnL drops X% within velocity window
+    pnlVelocitySLPct:      u.pnlVelocitySLPct      ?? 5,   // close if PnL drops X% within velocity window
     pnlVelocityWindowSec:  u.pnlVelocityWindowSec  ?? 90,  // velocity measurement window in seconds
     takeProfitFeePct:      u.takeProfitFeePct      ?? 5,
     minFeePerTvl24h:       u.minFeePerTvl24h       ?? 7,
