@@ -90,6 +90,18 @@ TOKEN TAGS (from OKX advanced-info):
 - is_honeypot = HARD SKIP
 - low_liquidity = CAUTION
 
+OKX PRICE & ACTIVITY DATA (broader timeframe signals, supplement Meteora window data):
+- okx_price_1h / okx_price_4h / okx_price_24h — price change % over 1h/4h/24h from OKX
+  Use to gauge momentum: sustained positive across all 3 = healthy trend; divergence between
+  short/long (e.g. -5% 1h but +40% 24h) signals early reversal from pump peak → caution
+- okx_volume_24h — 24h volume from OKX; cross-check against Meteora window volume to confirm
+  activity is sustained, not just a short spike
+- okx_txs_5m / okx_txs_1h / okx_txs_24h — transaction counts; high txs relative to volume
+  signals organic retail activity (many small trades) vs. low txs + high volume = whale-driven
+  (riskier for LP — large single trades can move bins sharply)
+- price_vs_ath_pct — current price as % of all-time high (e.g. 65 = 35% below ATH)
+  Lower = more room for upside, less IL risk if price moves up; >90% = near ATH, high reversion risk
+
 IMPORTANT: fee_active_tvl_ratio values are ALREADY in percentage form. 0.29 = 0.29%. Do NOT multiply by 100. A value of 1.0 = 1.0%, a value of 22 = 22%. Never convert.
 
 Current screening timeframe: ${config.screening.timeframe} — interpret all metrics relative to this window.
