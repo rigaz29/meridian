@@ -226,8 +226,15 @@ export async function getTopCandidates({ limit = 10 } = {}) {
         eligible[i].is_wash    = risk.is_wash;
       }
       if (price) {
-        eligible[i].price_vs_ath_pct = price.price_vs_ath_pct;
-        eligible[i].ath              = price.ath;
+        eligible[i].price_vs_ath_pct  = price.price_vs_ath_pct;
+        eligible[i].ath               = price.ath;
+        eligible[i].okx_price_1h      = price.price_change_1h;
+        eligible[i].okx_price_4h      = price.price_change_4h;
+        eligible[i].okx_price_24h     = price.price_change_24h;
+        eligible[i].okx_volume_24h    = price.volume_24h;
+        eligible[i].okx_txs_5m        = price.txs_5m;
+        eligible[i].okx_txs_1h        = price.txs_1h;
+        eligible[i].okx_txs_24h       = price.txs_24h;
       }
       if (clusters?.length) {
         // Surface KOL presence and top cluster trend for LLM
@@ -437,7 +444,14 @@ export async function checkPoolEligibility({ pool_address, timeframe = "1h" }) {
         okxSummary = {
           ...(okxSummary || {}),
           price_vs_ath_pct: price.value.price_vs_ath_pct,
-          ath: price.value.ath,
+          ath:              price.value.ath,
+          price_change_1h:  price.value.price_change_1h,
+          price_change_4h:  price.value.price_change_4h,
+          price_change_24h: price.value.price_change_24h,
+          volume_24h:       price.value.volume_24h,
+          txs_5m:           price.value.txs_5m,
+          txs_1h:           price.value.txs_1h,
+          txs_24h:          price.value.txs_24h,
         };
       }
 
@@ -578,6 +592,15 @@ function condensePool(p) {
     fee_change_pct: fix(p.fee_change_pct, 1),
     swap_count: p.swap_count,
     unique_traders: p.unique_traders,
+
+    // OKX supplemental — broader timeframe price/volume/activity
+    ...(p.okx_price_1h   != null ? { okx_price_1h:   fix(p.okx_price_1h, 1)   } : {}),
+    ...(p.okx_price_4h   != null ? { okx_price_4h:   fix(p.okx_price_4h, 1)   } : {}),
+    ...(p.okx_price_24h  != null ? { okx_price_24h:  fix(p.okx_price_24h, 1)  } : {}),
+    ...(p.okx_volume_24h != null ? { okx_volume_24h: round(p.okx_volume_24h)   } : {}),
+    ...(p.okx_txs_5m     != null ? { okx_txs_5m:     p.okx_txs_5m             } : {}),
+    ...(p.okx_txs_1h     != null ? { okx_txs_1h:     p.okx_txs_1h             } : {}),
+    ...(p.okx_txs_24h    != null ? { okx_txs_24h:    p.okx_txs_24h            } : {}),
   };
 }
 
