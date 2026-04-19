@@ -268,7 +268,11 @@ export async function getTopCandidates({ limit = 10 } = {}) {
       const threshold = 100 + athFilter; // e.g. -20 → threshold = 80 (price must be <= 80% of ATH)
       const before = eligible.length;
       eligible.splice(0, eligible.length, ...eligible.filter((p) => {
-        if (p.price_vs_ath_pct == null) return true; // no data → don't filter
+        if (p.price_vs_ath_pct == null) {
+          log("screening", `ATH filter: dropped ${p.name} — OKX price data unavailable (fail-closed when athFilterPct is set)`);
+          pushFilteredReason(filteredOut, p, "ATH data unavailable — fail-closed");
+          return false;
+        }
         if (p.price_vs_ath_pct > threshold) {
           log("screening", `ATH filter: dropped ${p.name} — ${p.price_vs_ath_pct}% of ATH (limit: ${threshold}%)`);
           pushFilteredReason(filteredOut, p, `${p.price_vs_ath_pct}% of ATH > ${threshold}% limit`);
