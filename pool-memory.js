@@ -36,11 +36,6 @@ function save(data) {
   fs.writeFileSync(POOL_MEMORY_FILE, JSON.stringify(data, null, 2));
 }
 
-function isOorCloseReason(reason) {
-  const text = String(reason || "").trim().toLowerCase();
-  return text === "oor" || text.includes("out of range") || text.includes("oor");
-}
-
 function isOorUpsideCloseReason(reason) {
   const text = String(reason || "").toLowerCase();
   return text.includes("upside oor") || text.includes("pumped") || text.includes("above range");
@@ -64,7 +59,7 @@ function isLowYieldCloseReason(reason) {
 
 function isSlCloseReason(reason) {
   const text = String(reason || "").toLowerCase();
-  return text.includes("velocity sl") || text.includes("price-drop sl");
+  return text.includes("velocity sl") || text.includes("price-drop sl") || text.includes("stop loss");
 }
 
 function isAdjustedWinRateExcludedReason(reason) {
