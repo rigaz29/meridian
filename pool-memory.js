@@ -41,6 +41,16 @@ function isOorCloseReason(reason) {
   return text === "oor" || text.includes("out of range") || text.includes("oor");
 }
 
+function isOorUpsideCloseReason(reason) {
+  const text = String(reason || "").toLowerCase();
+  return text.includes("upside oor") || text.includes("pumped") || text.includes("above range");
+}
+
+function isOorDownsideCloseReason(reason) {
+  const text = String(reason || "").toLowerCase();
+  return text.includes("downside oor");
+}
+
 function isLowYieldCloseReason(reason) {
   const text = String(reason || "").toLowerCase();
   if (!text.includes("low yield")) return false;
@@ -65,8 +75,9 @@ function isAdjustedWinRateExcludedReason(reason) {
     text.includes("oor");
 }
 
-function setPoolCooldown(entry, hours, reason) {
-  const cooldownUntil = new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
+function setPoolCooldown(entry, hours, reason, { minutes = 0 } = {}) {
+  const ms = (hours * 60 + minutes) * 60 * 1000;
+  const cooldownUntil = new Date(Date.now() + ms).toISOString();
   entry.cooldown_until = cooldownUntil;
   entry.cooldown_reason = reason;
   return cooldownUntil;
@@ -169,28 +180,32 @@ export function recordPoolDeploy(poolAddress, deployData) {
   if (isSlCloseReason(deploy.close_reason)) {
     const cooldownUntil = setPoolCooldown(entry, 6, "velocity/price-drop SL");
     log("pool-memory", `Cooldown 6h set for ${entry.name} until ${cooldownUntil} (SL close)`);
+  // Rule 1b: Downside OOR (1x) → 6h pool + base mint cooldown (token dumping, high risk to redeploy)
+  } else if (isOorDownsideCloseReason(deploy.close_reason)) {
+    const reason = "downside OOR (token dump)";
+    const poolCooldownUntil = setPoolCooldown(entry, 6, reason);
+    const mintCooldownUntil = setBaseMintCooldown(db, entry.base_mint, 6, reason);
+    log("pool-memory", `Cooldown 6h set for ${entry.name} until ${poolCooldownUntil} (${reason})`);
+    if (entry.base_mint && mintCooldownUntil) {
+      log("pool-memory", `Base mint cooldown 6h set for ${entry.base_mint.slice(0, 8)} until ${mintCooldownUntil} (${reason})`);
+    }
   // Rule 2: Low yield → 2h (pool dry, wait for volume to rebuild)
   } else if (isLowYieldCloseReason(deploy.close_reason)) {
     const cooldownUntil = setPoolCooldown(entry, 2, "low yield");
     log("pool-memory", `Cooldown 2h set for ${entry.name} until ${cooldownUntil} (low yield close)`);
   }
 
-  // Rule 3: 3× consecutive OOR → 6h pool + base mint cooldown (token OOR pattern, not worth retrying)
+  // Rule 3: 3× consecutive upside OOR → 60 min pool cooldown (token keeps pumping, wait for pullback)
   const oorTriggerCount = config.management.oorCooldownTriggerCount ?? 3;
   const recentDeploys = entry.deploys.slice(-oorTriggerCount);
-  const repeatedOorCloses =
+  const repeatedUpsideOorCloses =
     recentDeploys.length >= oorTriggerCount &&
-    recentDeploys.every((d) => isOorCloseReason(d.close_reason));
+    recentDeploys.every((d) => isOorUpsideCloseReason(d.close_reason));
 
-  if (repeatedOorCloses) {
-    const reason = `repeated OOR closes (${oorTriggerCount}x)`;
-    const oorCooldownHours = config.management.oorCooldownHours ?? 6;
-    const poolCooldownUntil = setPoolCooldown(entry, oorCooldownHours, reason);
-    const mintCooldownUntil = setBaseMintCooldown(db, entry.base_mint, oorCooldownHours, reason);
-    log("pool-memory", `Cooldown 6h set for ${entry.name} until ${poolCooldownUntil} (${reason})`);
-    if (entry.base_mint && mintCooldownUntil) {
-      log("pool-memory", `Base mint cooldown set for ${entry.base_mint.slice(0, 8)} until ${mintCooldownUntil} (${reason})`);
-    }
+  if (repeatedUpsideOorCloses) {
+    const reason = `repeated upside OOR closes (${oorTriggerCount}x)`;
+    const poolCooldownUntil = setPoolCooldown(entry, 0, reason, { minutes: 60 });
+    log("pool-memory", `Cooldown 60m set for ${entry.name} until ${poolCooldownUntil} (${reason})`);
   }
 
   save(db);
