@@ -906,17 +906,12 @@ Summarize the current portfolio health, total fees earned, and performance of al
           _pnlHistory.set(p.position, trimmed);
 
           const velocityThreshold = config.management.pnlVelocitySLPct ?? 5;
-          // Scale threshold by volatility — high-vol tokens have larger normal swings.
-          // Same pattern as outOfRangeWait scaling (sqrt), but inverse: high vol → higher threshold.
-          // Cap at 2x so even vol=9 tokens can't ignore a 10%+ freefall.
-          const posVol = getTrackedPosition(p.position)?.volatility ?? 1;
-          const effectiveVelocityThreshold = velocityThreshold * Math.min(2, Math.sqrt(Math.max(1, posVol)));
           const minAge = config.management.minAgeBeforeSL ?? 7;
           const windowStart = now - windowMs;
           const oldest = trimmed.find(h => h.ts >= windowStart);
           if (velocityThreshold > 0 && oldest && oldest !== trimmed[trimmed.length - 1] && (p.age_minutes ?? 0) >= minAge) {
             const drop = oldest.pnl_pct - p.pnl_pct;
-            if (drop >= effectiveVelocityThreshold) {
+            if (drop >= velocityThreshold) {
               if (_closingPositions.has(p.position)) continue; // already being closed
               const windowSec = Math.round((now - oldest.ts) / 1000);
               const reason = `Velocity SL: PnL dropped ${drop.toFixed(2)}% in ${windowSec}s (${oldest.pnl_pct.toFixed(2)}% → ${p.pnl_pct.toFixed(2)}%)`;
