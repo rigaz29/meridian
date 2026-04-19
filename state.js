@@ -532,7 +532,7 @@ export function updatePnlAndCheckExits(position_address, positionData, mgmtConfi
       positionData.active_bin > positionData.upper_bin;
     const wait = isDownside
       ? (mgmtConfig.downsideOorWaitMinutes ?? 5)
-      : mgmtConfig.outOfRangeWaitMinutes;
+      : mgmtConfig.upsideOorWaitMinutes;
     if (minutesOOR >= wait) {
       const reason = isDownside
         ? `downside OOR (${minutesOOR}m)`

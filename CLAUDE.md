@@ -90,7 +90,7 @@ Sets defined in `agent.js:6-7`. If you add a tool, also add it to the relevant s
 | autoCompound | management | false |
 | autoCompoundFeePct | management | 0.02 |
 | bearMode | management | false |
-| outOfRangeWaitMinutes | management | 30 |
+| upsideOorWaitMinutes | management | 30 |
 | downsideOorWaitMinutes | management | 5 |
 | autoClaimPct | management | 5 |
 | minAgeBeforeSL | management | 7 |

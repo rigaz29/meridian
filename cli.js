@@ -152,7 +152,7 @@ Returns the full runtime config.
 ### meridian config set <key> <value>
 Updates a config key. Parses value as JSON when possible.
 \`\`\`
-Valid keys: minTvl, maxTvl, minVolume, maxPositions, deployAmountSol, managementIntervalMin, screeningIntervalMin, managementModel, screeningModel, generalModel, autoSwapAfterClaim, minClaimAmount, outOfRangeWaitMinutes
+Valid keys: minTvl, maxTvl, minVolume, maxPositions, deployAmountSol, managementIntervalMin, screeningIntervalMin, managementModel, screeningModel, generalModel, autoSwapAfterClaim, minClaimAmount, upsideOorWaitMinutes
 \`\`\`
 
 ### meridian lessons [--limit 50]

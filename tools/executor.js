@@ -167,7 +167,7 @@ const toolMap = {
       minClaimAmount: ["management", "minClaimAmount"],
       autoSwapAfterClaim: ["management", "autoSwapAfterClaim"],
       outOfRangeBinsToClose: ["management", "outOfRangeBinsToClose"],
-      outOfRangeWaitMinutes: ["management", "outOfRangeWaitMinutes"],
+      upsideOorWaitMinutes: ["management", "upsideOorWaitMinutes"],
       oorCooldownTriggerCount: ["management", "oorCooldownTriggerCount"],
       oorCooldownHours: ["management", "oorCooldownHours"],
       minVolumeToRebalance: ["management", "minVolumeToRebalance"],

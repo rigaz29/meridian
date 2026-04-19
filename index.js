@@ -414,7 +414,7 @@ export async function runManagementCycle({ silent = false } = {}) {
       // Rule 4: stale above range — timeout scales down with volatility (high vol = exit faster)
       {
         const vol = tracked?.volatility ?? 1;
-        const effectiveOorWait = Math.round(config.management.outOfRangeWaitMinutes / Math.sqrt(Math.max(1, vol)));
+        const effectiveOorWait = Math.round(config.management.upsideOorWaitMinutes / Math.sqrt(Math.max(1, vol)));
         if (p.active_bin != null && p.upper_bin != null &&
             p.active_bin > p.upper_bin &&
             (p.minutes_out_of_range ?? 0) >= effectiveOorWait) {
@@ -553,7 +553,7 @@ After executing, write a brief one-line result per position.
         else sendHTML(`🔄 <b>Management Cycle</b>\n<code>──────────────────</code>\n${stripThink(mgmtReport).slice(0, 3800)}`).catch(() => { });
       }
       for (const p of positions) {
-        if (!p.in_range && p.minutes_out_of_range >= config.management.outOfRangeWaitMinutes) {
+        if (!p.in_range && p.minutes_out_of_range >= config.management.upsideOorWaitMinutes) {
           notifyOutOfRange({ pair: p.pair, minutesOOR: p.minutes_out_of_range }).catch(() => { });
         }
       }

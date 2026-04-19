@@ -65,7 +65,7 @@ export const config = {
     minClaimAmount:        u.minClaimAmount        ?? 5,
     autoSwapAfterClaim:    u.autoSwapAfterClaim    ?? false,
     outOfRangeBinsToClose: u.outOfRangeBinsToClose ?? 10,
-    outOfRangeWaitMinutes:   u.outOfRangeWaitMinutes   ?? 30,
+    upsideOorWaitMinutes:   u.upsideOorWaitMinutes   ?? 30,
     downsideOorWaitMinutes:  u.downsideOorWaitMinutes  ?? 5,   // faster exit for downside OOR (recovery rare)
     oorCooldownTriggerCount: u.oorCooldownTriggerCount ?? 3,
     oorCooldownHours:        u.oorCooldownHours        ?? 6,

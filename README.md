@@ -376,7 +376,7 @@ Security notes:
 Meridian sends notifications automatically for:
 - Management cycle reports (reasoning + decisions)
 - Screening cycle reports (what it found, whether it deployed)
-- OOR alerts when a position leaves range past `outOfRangeWaitMinutes`
+- OOR alerts when a position leaves range past `upsideOorWaitMinutes`
 - Deploy: pair, amount, position address, tx hash
 - Close: pair and PnL
 
@@ -435,7 +435,7 @@ All fields are optional — defaults shown. Edit `user-config.json`.
 | `autoCompound` | `false` | Portfolio-aware sizing — deploy amount scales with total portfolio (free SOL + locked positions). `deployAmountSol` floor is ignored. |
 | `autoCompoundFeePct` | `0.02` | Reserve X% of total portfolio for tx fees in autoCompound mode |
 | `bearMode` | `false` | Swap excess SOL → USDC after close/claim; auto-swap back before deploy. Protects against SOL depreciation. |
-| `outOfRangeWaitMinutes` | `30` | Minutes OOR (upside) before closing |
+| `upsideOorWaitMinutes` | `30` | Minutes OOR (upside) before closing |
 | `downsideOorWaitMinutes` | `5` | Minutes OOR (downside) before closing — fast exit, recovery from below range is rare |
 | `stopLossPct` | `-20` | Close if PnL drops below this % (with 15s confirmation to filter data glitches) |
 | `priceDropSLPct` | `-15` | Close immediately if token price drops X% from entry bin — fee-independent, bypasses LLM |
@@ -575,7 +575,7 @@ All stop losses respect `minAgeBeforeSL` (7 min) to avoid false triggers on fres
 
 | Rule | Trigger |
 |---|---|
-| Upside OOR | Active bin > upper bin for `outOfRangeWaitMinutes` (30m), scaled down by volatility |
+| Upside OOR | Active bin > upper bin for `upsideOorWaitMinutes` (30m), scaled down by volatility |
 | Downside OOR | Active bin < lower bin for `downsideOorWaitMinutes` (5m) — faster because recovery is rare |
 | Far above range | Active bin > upper bin + `outOfRangeBinsToClose` — closes immediately, no wait |
 

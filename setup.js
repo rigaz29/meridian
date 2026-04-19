@@ -91,7 +91,7 @@ const PRESETS = {
     maxMcap:               5_000_000,
     takeProfitFeePct:      10,
     stopLossPct:           -25,
-    outOfRangeWaitMinutes: 15,
+    upsideOorWaitMinutes: 15,
     managementIntervalMin: 5,
     screeningIntervalMin:  15,
     description: "30m timeframe, pumping tokens allowed, fast cycles. High risk/reward.",
@@ -104,7 +104,7 @@ const PRESETS = {
     maxMcap:               10_000_000,
     takeProfitFeePct:      5,
     stopLossPct:           -15,
-    outOfRangeWaitMinutes: 30,
+    upsideOorWaitMinutes: 30,
     managementIntervalMin: 10,
     screeningIntervalMin:  30,
     description: "4h timeframe, balanced risk/reward. Recommended for most users.",
@@ -117,7 +117,7 @@ const PRESETS = {
     maxMcap:               10_000_000,
     takeProfitFeePct:      3,
     stopLossPct:           -10,
-    outOfRangeWaitMinutes: 60,
+    upsideOorWaitMinutes: 60,
     managementIntervalMin: 15,
     screeningIntervalMin:  60,
     description: "24h timeframe, stable pools only, avoids pumps. Lower yield, lower risk.",
@@ -267,9 +267,9 @@ const stopLossPct = await askNum(
   { min: -99, max: -1 }
 );
 
-const outOfRangeWaitMinutes = await askNum(
+const upsideOorWaitMinutes = await askNum(
   "Minutes out-of-range before closing",
-  p("outOfRangeWaitMinutes", 30),
+  p("upsideOorWaitMinutes", 30),
   { min: 1 }
 );
 
@@ -379,7 +379,7 @@ const userConfig = {
   maxMcap,
   takeProfitFeePct,
   stopLossPct,
-  outOfRangeWaitMinutes,
+  upsideOorWaitMinutes,
   managementIntervalMin,
   screeningIntervalMin,
   llmProvider: provider.key,
@@ -411,7 +411,7 @@ console.log(`
   Timeframe:    ${timeframe}  ·  organic ≥ ${minOrganic}  ·  holders ≥ ${minHolders}
   Take profit:  fees ≥ ${takeProfitFeePct}%
   Stop loss:    ${stopLossPct}% price drop
-  OOR close:    after ${outOfRangeWaitMinutes} min
+  OOR close:    after ${upsideOorWaitMinutes} min
 
   Cycles:       management every ${managementIntervalMin}m  ·  screening every ${screeningIntervalMin}m
   Provider:     ${provider.label.split("(")[0].trim()}
