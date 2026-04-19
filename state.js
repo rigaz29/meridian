@@ -526,11 +526,20 @@ export function updatePnlAndCheckExits(position_address, positionData, mgmtConfi
   // ── Out of range too long ──────────────────────────────────────
   if (pos.out_of_range_since) {
     const minutesOOR = Math.floor((Date.now() - new Date(pos.out_of_range_since).getTime()) / 60000);
-    if (minutesOOR >= mgmtConfig.outOfRangeWaitMinutes) {
-      return {
-        action: "OUT_OF_RANGE",
-        reason: `Out of range for ${minutesOOR}m (limit: ${mgmtConfig.outOfRangeWaitMinutes}m)`,
-      };
+    const isDownside = positionData.active_bin != null && positionData.lower_bin != null &&
+      positionData.active_bin < positionData.lower_bin;
+    const isUpside = positionData.active_bin != null && positionData.upper_bin != null &&
+      positionData.active_bin > positionData.upper_bin;
+    const wait = isDownside
+      ? (mgmtConfig.downsideOorWaitMinutes ?? 5)
+      : mgmtConfig.outOfRangeWaitMinutes;
+    if (minutesOOR >= wait) {
+      const reason = isDownside
+        ? `downside OOR (${minutesOOR}m)`
+        : isUpside
+          ? `upside OOR (${minutesOOR}m)`
+          : `out of range for ${minutesOOR}m`;
+      return { action: "OUT_OF_RANGE", reason };
     }
   }
 
