@@ -162,6 +162,7 @@ const toolMap = {
       maxTokenAgeHours: ["screening", "maxTokenAgeHours"],
       maxVolatility: ["screening", "maxVolatility"],
       athFilterPct:     ["screening", "athFilterPct"],
+      maxPriceChangePct: ["screening", "maxPriceChangePct"],
       minFeePerTvl24h: ["management", "minFeePerTvl24h"],
       // management
       minClaimAmount: ["management", "minClaimAmount"],
@@ -213,15 +214,20 @@ pnlVelocitySLPct: ["management", "pnlVelocitySLPct"],
       Object.entries(CONFIG_MAP).map(([k, v]) => [k.toLowerCase(), [k, v]])
     );
 
+    const invalid = [];
     for (const [key, val] of Object.entries(changes)) {
       const match = CONFIG_MAP[key] ? [key, CONFIG_MAP[key]] : CONFIG_MAP_LOWER[key.toLowerCase()];
       if (!match) { unknown.push(key); continue; }
+      if (match[0] === "athFilterPct" && val != null && val > 0) {
+        invalid.push(`athFilterPct must be null or a negative number (e.g. -20), got ${val}`);
+        continue;
+      }
       applied[match[0]] = val;
     }
 
     if (Object.keys(applied).length === 0) {
-      log("config", `update_config failed — unknown keys: ${JSON.stringify(unknown)}, raw changes: ${JSON.stringify(changes)}`);
-      return { success: false, unknown, reason };
+      log("config", `update_config failed — unknown keys: ${JSON.stringify(unknown)}, invalid: ${JSON.stringify(invalid)}, raw changes: ${JSON.stringify(changes)}`);
+      return { success: false, unknown, invalid, reason };
     }
 
     // Apply to live config immediately
@@ -260,7 +266,7 @@ pnlVelocitySLPct: ["management", "pnlVelocitySLPct"],
     }
 
     log("config", `Agent self-tuned: ${JSON.stringify(applied)} — ${reason}`);
-    return { success: true, applied, unknown, reason };
+    return { success: true, applied, unknown, invalid, reason };
   },
 };
 
