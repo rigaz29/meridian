@@ -78,6 +78,7 @@ pnlVelocitySLPct:      u.pnlVelocitySLPct      ?? 5,   // close if PnL drops X% 
     minFeePerTvl24h:       u.minFeePerTvl24h       ?? 7,
     minAgeBeforeYieldCheck:    u.minAgeBeforeYieldCheck    ?? 60,   // minutes before low yield can trigger close
     minFeesEarnedForYieldExit: u.minFeesEarnedForYieldExit ?? 0.20, // min unclaimed fees (USD) before low yield can trigger close
+    lowYieldConfirmMinutes:    u.lowYieldConfirmMinutes    ?? 30,   // re-check window before confirming low yield close
     minSolToOpen:          u.minSolToOpen          ?? 0.55,
     deployAmountSol:       u.deployAmountSol       ?? 0.5,
     gasReserve:            u.gasReserve            ?? 0.2,

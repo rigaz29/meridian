@@ -534,21 +534,54 @@ export function updatePnlAndCheckExits(position_address, positionData, mgmtConfi
     }
   }
 
-  // ── Low yield (only after position has had time to accumulate fees) ───
+  // ── Low yield with confirmation window ────────────────────────
   const { age_minutes, unclaimed_fees_usd } = positionData;
-  const minAgeForYieldCheck = mgmtConfig.minAgeBeforeYieldCheck;
-  const minFeesForYieldExit = mgmtConfig.minFeesEarnedForYieldExit;
-  if (
+  const lowYieldMet = (
     fee_per_tvl_24h != null &&
     mgmtConfig.minFeePerTvl24h != null &&
     fee_per_tvl_24h < mgmtConfig.minFeePerTvl24h &&
-    (age_minutes == null || age_minutes >= minAgeForYieldCheck) &&
-    (unclaimed_fees_usd == null || unclaimed_fees_usd >= minFeesForYieldExit)
-  ) {
+    (age_minutes == null || age_minutes >= (mgmtConfig.minAgeBeforeYieldCheck ?? 60)) &&
+    (unclaimed_fees_usd == null || unclaimed_fees_usd >= (mgmtConfig.minFeesEarnedForYieldExit ?? 0.20))
+  );
+
+  if (lowYieldMet) {
+    const confirmMinutes = mgmtConfig.lowYieldConfirmMinutes ?? 30;
+
+    if (!pos.low_yield_detected_at) {
+      pos.low_yield_detected_at = new Date().toISOString();
+      save(state);
+      log("state", `Position ${position_address} low yield detected (${fee_per_tvl_24h.toFixed(2)}% < ${mgmtConfig.minFeePerTvl24h}%) — confirming in ${confirmMinutes}m`);
+      return {
+        action: "LOW_YIELD_PENDING",
+        reason: `Low yield: fee/TVL ${fee_per_tvl_24h.toFixed(2)}% < min ${mgmtConfig.minFeePerTvl24h}% — confirming in ${confirmMinutes}m`,
+        confirm_minutes: confirmMinutes,
+      };
+    }
+
+    const elapsedMin = Math.floor((Date.now() - new Date(pos.low_yield_detected_at).getTime()) / 60000);
+    if (elapsedMin < confirmMinutes) {
+      return {
+        action: "LOW_YIELD_PENDING",
+        reason: `Low yield: fee/TVL ${fee_per_tvl_24h.toFixed(2)}% < min ${mgmtConfig.minFeePerTvl24h}% — ${elapsedMin}/${confirmMinutes}m elapsed`,
+        confirm_minutes: confirmMinutes,
+        elapsed_minutes: elapsedMin,
+      };
+    }
+
+    // Confirmed — still low yield after full window
+    pos.low_yield_detected_at = null;
+    save(state);
     return {
       action: "LOW_YIELD",
-      reason: `Low yield: fee/TVL ${fee_per_tvl_24h.toFixed(2)}% < min ${mgmtConfig.minFeePerTvl24h}% (age: ${age_minutes ?? "?"}m)`,
+      reason: `Low yield confirmed: fee/TVL ${fee_per_tvl_24h.toFixed(2)}% < min ${mgmtConfig.minFeePerTvl24h}% for ${elapsedMin}m (age: ${age_minutes ?? "?"}m)`,
     };
+  }
+
+  // Yield recovered — clear pending flag if set
+  if (pos.low_yield_detected_at) {
+    log("state", `Position ${position_address} yield recovered (${fee_per_tvl_24h != null ? fee_per_tvl_24h.toFixed(2) : "?"}%) — clearing low yield pending`);
+    pos.low_yield_detected_at = null;
+    save(state);
   }
 
   return null;

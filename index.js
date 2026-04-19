@@ -362,6 +362,10 @@ export async function runManagementCycle({ silent = false } = {}) {
           }
           continue;
         }
+        if (exit.action === "LOW_YIELD_PENDING") {
+          log("state", `Low yield pending for ${p.pair}: ${exit.reason}`);
+          continue;
+        }
         exitMap.set(p.position, exit.reason);
         log("state", `Exit alert for ${p.pair}: ${exit.reason}`);
       }
@@ -427,14 +431,6 @@ export async function runManagementCycle({ silent = false } = {}) {
           actionMap.set(p.position, { action: "CLOSE", rule: "4b", reason: `downside OOR (${downsideWait}m)` });
           continue;
         }
-      }
-      // Rule 5: fee yield too low
-      if (p.fee_per_tvl_24h != null &&
-          p.fee_per_tvl_24h < config.management.minFeePerTvl24h &&
-          (p.age_minutes ?? 0) >= config.management.minAgeBeforeYieldCheck &&
-          (p.unclaimed_fees_usd ?? 0) >= config.management.minFeesEarnedForYieldExit) {
-        actionMap.set(p.position, { action: "CLOSE", rule: 5, reason: "low yield" });
-        continue;
       }
       // Rule 6: spot max hold time exceeded
       {
