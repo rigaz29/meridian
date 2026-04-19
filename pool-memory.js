@@ -186,8 +186,8 @@ export function recordPoolDeploy(poolAddress, deployData) {
     }
   // Rule 2: Low yield → 2h (pool dry, wait for volume to rebuild)
   } else if (isLowYieldCloseReason(deploy.close_reason)) {
-    const cooldownUntil = setPoolCooldown(entry, 2, "low yield");
-    log("pool-memory", `Cooldown 2h set for ${entry.name} until ${cooldownUntil} (low yield close)`);
+    const cooldownUntil = setPoolCooldown(entry, 24, "low yield");
+    log("pool-memory", `Cooldown 24h set for ${entry.name} until ${cooldownUntil} (low yield close)`);
   }
 
   // Rule 3: 3× consecutive upside OOR → 60 min pool cooldown (token keeps pumping, wait for pullback)
