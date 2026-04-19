@@ -362,8 +362,12 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
           }
         }
 
-        // Block once-per-session tools from firing a second time
-        if (ONCE_PER_SESSION.has(functionName) && firedOnce.has(functionName)) {
+        // Block once-per-session tools from firing a second time on the same target
+        // close_position is keyed by position address so different positions can be closed in one session
+        const onceKey = (functionName === "close_position" && functionArgs?.position_address)
+          ? `close_position:${functionArgs.position_address}`
+          : functionName;
+        if (ONCE_PER_SESSION.has(functionName) && firedOnce.has(onceKey)) {
           log("agent", `Blocked duplicate ${functionName} call — already executed this session`);
           await onToolFinish?.({
             name: functionName,
@@ -391,8 +395,8 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
 
         // Lock deploy_position after first attempt regardless of outcome — retrying is never right
         // For close/swap: only lock on success so genuine failures can be retried
-        if (NO_RETRY_TOOLS.has(functionName)) firedOnce.add(functionName);
-        else if (ONCE_PER_SESSION.has(functionName) && result.success === true) firedOnce.add(functionName);
+        if (NO_RETRY_TOOLS.has(functionName)) firedOnce.add(onceKey);
+        else if (ONCE_PER_SESSION.has(functionName) && result.success === true) firedOnce.add(onceKey);
 
         return {
           role: "tool",
