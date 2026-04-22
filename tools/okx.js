@@ -200,6 +200,37 @@ export async function getPriceInfo(tokenAddress, chainIndex = CHAIN_SOLANA) {
 }
 
 /**
+ * OHLCV candles for a token — 15m and other intervals supported.
+ * Returns normalized [{timestamp, open, high, low, close, volume}] oldest-first, or null on failure.
+ */
+export async function fetchOHLCVCandles(tokenMint, { timeframe = "15m", limit = 100, beforeMs = null } = {}) {
+  if (!tokenMint) return null;
+  const params = new URLSearchParams({
+    chainIndex: CHAIN_SOLANA,
+    tokenContractAddress: tokenMint,
+    period: timeframe,
+    limit: String(limit),
+  });
+  if (beforeMs) params.set("before", String(beforeMs));
+
+  const path = `/api/v6/dex/market/candles?${params}`;
+  const data = await okxGet(path);
+
+  const raw = Array.isArray(data) ? data : (Array.isArray(data?.data) ? data.data : null);
+  if (!raw?.length) return null;
+
+  // OKX returns newest-first → reverse to oldest-first
+  return raw.slice().reverse().map(c => ({
+    timestamp: Math.floor(Number(c[0]) / 1000), // ms → sec
+    open:      Number(c[1]),
+    high:      Number(c[2]),
+    low:       Number(c[3]),
+    close:     Number(c[4]),
+    volume:    Number(c[5]),
+  })).filter(c => c.close > 0);
+}
+
+/**
  * Fetch all three in parallel — use this during screening enrichment.
  */
 export async function getFullTokenAnalysis(tokenAddress, chainIndex = CHAIN_SOLANA) {
