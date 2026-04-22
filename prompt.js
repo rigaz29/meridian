@@ -157,7 +157,7 @@ Use as a conviction layer — no single indicator blocks a deploy except the har
 
   SOFT NEGATIVES (reduce conviction, don't block alone):
   │  volume_spike = true      → fee spike that fades fast, avg PnL +0.01% vs +0.67% without
-  │  supertrend = "up" + bb_position = "middle" → worst observed combo, avg PnL -0.47%
+  │  supertrend.direction = "up" + bb_position = "middle" → worst observed combo, avg PnL -0.47%
 
   SCORING: 1+ strong positive with no hard stop = deploy. All signals neutral (no combo match) = hesitate.
   indicators = null → mild negative (new pool, insufficient price history).
