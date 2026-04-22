@@ -20,7 +20,7 @@ import {
 } from "../state.js";
 import { recordPerformance } from "../lessons.js";
 import { isBaseMintOnCooldown, isPoolOnCooldown } from "../pool-memory.js";
-import { computeTechnicalIndicators, findNearestSupport, fetchOHLCV } from "../meteora-api.js";
+import { computeTechnicalIndicators, findNearestSupport, fetchOHLCV, fetchOHLCVGeckoTerminal } from "../meteora-api.js";
 import { normalizeMint } from "./wallet.js";
 
 // ─── Lazy SDK loader ───────────────────────────────────────────
@@ -232,8 +232,8 @@ export async function deployPosition({
   try {
     const now = Math.floor(Date.now() / 1000);
     const [indResult, ohlcv] = await Promise.all([
-      computeTechnicalIndicators(pool_address),
-      fetchOHLCV(pool_address, { startTime: now - 100 * 300, endTime: now, timeframe: "5m" }),
+      computeTechnicalIndicators(pool_address, { tokenMint: baseMint }),
+      fetchOHLCVGeckoTerminal(pool_address, { aggregate: 15, limit: 100 }),
     ]);
     indicators_at_entry = indResult;
     if (Array.isArray(ohlcv) && ohlcv.length >= 10) {
@@ -1064,7 +1064,8 @@ export async function closePosition({ position_address, reason }) {
 
       let indicators_at_exit = null;
       try {
-        indicators_at_exit = await computeTechnicalIndicators(poolAddress);
+        const exitMint = pool.lbPair.tokenXMint.toString();
+        indicators_at_exit = await computeTechnicalIndicators(poolAddress, { tokenMint: exitMint });
         if (indicators_at_exit) log("close", `Exit indicators: RSI=${indicators_at_exit.rsi_14} EMA=${indicators_at_exit.ema_trend} BB=${indicators_at_exit.bb_position}`);
       } catch (e) {
         log("close_warn", `Exit indicators failed: ${e.message}`);
