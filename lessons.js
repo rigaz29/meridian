@@ -291,20 +291,6 @@ export function evolveThresholds(perfData, config) {
     }
   }
 
-  // ── 5. maxPriceVolatility (NEW — from enrichment) ─────────────
-  {
-    const loserPV = losers.map((p) => p.price_range_pct).filter(isFiniteNum);
-    const current = config.screening.maxPriceVolatility ?? 50;
-    if (loserPV.length >= 2) {
-      const lP25 = percentile(loserPV, 25);
-      if (lP25 < current) {
-        const newVal = clamp(nudge(current, lP25 * 1.1, MAX_CHANGE_PER_STEP), 5, 100);
-        const rounded = Number(newVal.toFixed(1));
-        if (rounded < current) { changes.maxPriceVolatility = rounded; rationale.maxPriceVolatility = `Losers price_range ~${lP25.toFixed(1)}% — tightened ${current}% → ${rounded}%`; }
-      }
-    }
-  }
-
   if (Object.keys(changes).length === 0) return { changes: {}, rationale: {} };
 
   // Persist
@@ -316,7 +302,7 @@ export function evolveThresholds(perfData, config) {
   fs.writeFileSync(USER_CONFIG_PATH, JSON.stringify(userConfig, null, 2));
 
   const s = config.screening;
-  for (const [k, v] of Object.entries(changes)) { if (s[k] !== undefined || k === "maxPriceVolatility") s[k] = v; }
+  for (const [k, v] of Object.entries(changes)) { if (s[k] !== undefined) s[k] = v; }
 
   const data = load();
   data.lessons.push({

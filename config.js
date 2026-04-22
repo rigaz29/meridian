@@ -56,7 +56,6 @@ export const config = {
     maxTokenAgeHours:   u.maxTokenAgeHours   ?? null, // null = no maximum
     athFilterPct:       u.athFilterPct       ?? null, // e.g. -20 = only deploy if price is >= 20% below ATH
     maxPriceChangePct:  u.maxPriceChangePct  ?? null, // e.g. 5 = skip pools where price_change_pct > 5% (avoid entering at pump peak); null = disabled
-    maxPriceVolatility: u.maxPriceVolatility ?? 50,   // max % price swing during position (auto-evolved)
     maxVolatility:      u.maxVolatility      ?? null, // max pool volatility score from Meteora API; null = disabled
   },
 
@@ -208,7 +207,6 @@ export function reloadScreeningThresholds() {
     if (fresh.maxPriceChangePct !== undefined) s.maxPriceChangePct = fresh.maxPriceChangePct;
     if (fresh.maxBundlePct      != null) s.maxBundlePct     = fresh.maxBundlePct;
     if (fresh.maxBotHoldersPct  != null) s.maxBotHoldersPct = fresh.maxBotHoldersPct;
-    if (fresh.maxPriceVolatility != null) s.maxPriceVolatility = fresh.maxPriceVolatility;
   } catch (err) {
     log("config_error", `Failed to reload screening thresholds: ${err.message}`);
   }
