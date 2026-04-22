@@ -307,7 +307,7 @@ export async function getTopCandidates({ limit = 10 } = {}) {
   // Enrich with live OHLCV technical indicators (parallel, non-blocking)
   if (eligible.length > 0) {
     const { computeTechnicalIndicators } = await import("../meteora-api.js");
-    const indResults = await Promise.allSettled(eligible.map(p => computeTechnicalIndicators(p.pool)));
+    const indResults = await Promise.allSettled(eligible.map(p => computeTechnicalIndicators(p.pool, { tokenMint: p.base?.mint })));
     for (let i = 0; i < eligible.length; i++) {
       const r = indResults[i];
       if (r.status === "fulfilled" && r.value) eligible[i].indicators = r.value;
