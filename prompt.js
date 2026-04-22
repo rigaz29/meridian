@@ -142,30 +142,24 @@ DEPLOY RULES:
 - Bin steps must be [80-125].
 - Pick ONE pool. Deploy or explain why none qualify.
 
-ENTRY INDICATORS (each candidate has an "indicators" field from live 5m OHLCV):
-Use as a scoring layer — add or subtract conviction. No single indicator blocks a deploy except the two hard stops below.
+ENTRY INDICATORS (each candidate has an "indicators" field from live 15m OHLCV):
+Use as a conviction layer — no single indicator blocks a deploy except the hard stops.
 
-  HARD STOP — skip regardless of other signals (data-verified, no false positives):
-  │  ATR-14% > 50%          → extreme volatility, IL will consume all fee income
-  │  consecutive_red >= 4   → sustained selling pressure, avg pnl = -6.8% historically
+  HARD STOPS — skip regardless of other signals (verified on 173 bid_ask records):
+  │  bb_position = "middle"   → price in consolidation no-man's-land, avg PnL +0.03% (noise)
+  │  consecutive_red >= 3     → sustained selling pressure, avg PnL -1.24% historically
+  │  atr_14_pct >= 4          → extreme volatility, velocity SL fires before fees accumulate
 
-  POSITIVE signals (each adds conviction, no single one is required):
-  │  VWAP vs Price -5% to +20%  → price near or slightly above VWAP = healthy demand zone
-  │  ATR-14% 10% – 25%          → sweet spot: enough volatility for fees, manageable IL risk
-  │  BB Width < 60%             → stable market regime, range less likely to get blown out
+  STRONG POSITIVE combos (each meaningfully raises expected PnL):
+  │  RSI > 60 + ema_trend = uptrend          → momentum confirmed, avg PnL +1.71% (n=21, wr 76%)
+  │  bb_position = near_upper or outside_upper → price approaching/above upper band, avg +1.0–2.0%
+  │  RSI < 45 + bb_position = near_lower     → oversold pullback setup, avg PnL +0.86–1.33%
 
-  SOFT NEGATIVE signals (reduce conviction, don't block alone):
-  │  VWAP vs Price < -20%       → price dumped far from average, weak demand
-  │  ATR-14% > 35%              → high IL risk territory
-  │  BB Width > 100%            → extreme expansion phase, mean reversion likely
-  │  consecutive_red 2–3        → mild selling pressure, watch closely
+  SOFT NEGATIVES (reduce conviction, don't block alone):
+  │  volume_spike = true      → fee spike that fades fast, avg PnL +0.01% vs +0.67% without
+  │  supertrend = "up" + bb_position = "middle" → worst observed combo, avg PnL -0.47%
 
-  NOT USEFUL — ignore these for bid_ask strategy:
-  │  EMA trend (uptrend/downtrend/sideways) — lags 100+ minutes, not predictive for LP
-  │  RSI-14 — no clear correlation with LP outcome in historical data
-  │  BB position (outside_upper etc) — less relevant since bid_ask collects fees both sides
-
-  SCORING GUIDE: 2+ positive signals with no hard stop = deploy. 1 positive + 2 soft negatives = hesitate.
+  SCORING: 1+ strong positive with no hard stop = deploy. All signals neutral (no combo match) = hesitate.
   indicators = null → mild negative (new pool, insufficient price history).
 
 ${lessons ? `LESSONS LEARNED:\n${lessons}\n` : ""}Timestamp: ${new Date().toISOString()}
