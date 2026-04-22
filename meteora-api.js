@@ -489,7 +489,8 @@ export async function computeTechnicalIndicators(poolAddress, { tokenMint = null
   const result = await _fetchOHLCVMultiSource(poolAddress, tokenMint);
   if (!result) return null;
   const indicators = computeIndicatorsFromCandles(result.candles);
-  return indicators ? { ...indicators, _source: result.source } : null;
+  const tf = result.source === "meteora-30m" ? "30m" : "15m";
+  return indicators ? { ...indicators, _timeframe: tf, _source: result.source } : null;
 }
 
 /**
