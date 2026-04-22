@@ -416,44 +416,120 @@ export function computeIndicatorsFromCandles(raw) {
     ema_trend:         _emaTrend(closes),
     volume_spike:      _volSpike(volumes),
     consecutive_red:   _consecutiveRed(c),
+    supertrend:        _supertrend(highs, lows, closes),
   };
 }
 
-/**
- * Compute TA indicators from recent OHLCV for a pool (live — anchored to now).
- * Returns null if insufficient candle data.
- */
-export async function computeTechnicalIndicators(poolAddress, { timeframe = "5m" } = {}) {
-  const now = Math.floor(Date.now() / 1000);
-  const raw = await fetchOHLCV(poolAddress, { startTime: now - 60 * 300, endTime: now, timeframe });
-  return computeIndicatorsFromCandles(raw);
+// ─── GeckoTerminal OHLCV (pool-based, supports 15m) ───────────────────────────
+
+const GECKO_BASE = "https://api.geckoterminal.com/api/v2";
+
+export async function fetchOHLCVGeckoTerminal(poolAddress, { aggregate = 15, limit = 100, beforeSec = null } = {}) {
+  if (!poolAddress) return null;
+  const params = new URLSearchParams({ aggregate: String(aggregate), limit: String(limit), currency: "usd" });
+  if (beforeSec) params.set("before_timestamp", String(beforeSec));
+  const url = `${GECKO_BASE}/networks/solana/pools/${poolAddress}/ohlcv/minute?${params}`;
+  try {
+    const res = await fetch(url, { headers: { Accept: "application/json" } });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const list = data?.data?.attributes?.ohlcv_list;
+    if (!Array.isArray(list) || !list.length) return null;
+    // GeckoTerminal returns newest-first → reverse
+    return list.slice().reverse().map(c => ({
+      timestamp: Number(c[0]),
+      open:      Number(c[1]),
+      high:      Number(c[2]),
+      low:       Number(c[3]),
+      close:     Number(c[4]),
+      volume:    Number(c[5]),
+    })).filter(c => c.close > 0);
+  } catch {
+    return null;
+  }
+}
+
+// ─── Multi-source OHLCV fetch: OKX → GeckoTerminal → Meteora ─────────────────
+
+async function _fetchOHLCVMultiSource(poolAddress, tokenMint, { beforeSec = null } = {}) {
+  const beforeMs = beforeSec ? beforeSec * 1000 : null;
+
+  // 1. OKX — token-based, supports 15m
+  if (tokenMint) {
+    try {
+      const { fetchOHLCVCandles } = await import("./tools/okx.js");
+      const candles = await fetchOHLCVCandles(tokenMint, { timeframe: "15m", limit: 100, beforeMs });
+      if (candles?.length >= 21) return { candles, source: "okx" };
+    } catch { /* fall through */ }
+  }
+
+  // 2. GeckoTerminal — pool-based, supports 15m
+  if (poolAddress) {
+    const candles = await fetchOHLCVGeckoTerminal(poolAddress, { aggregate: 15, limit: 100, beforeSec });
+    if (candles?.length >= 21) return { candles, source: "gecko" };
+  }
+
+  // 3. Meteora — pool-based, 30m only
+  if (poolAddress) {
+    try {
+      const now = beforeSec ?? Math.floor(Date.now() / 1000);
+      const raw = await fetchOHLCV(poolAddress, { startTime: now - 60 * 1800, endTime: now + 1800, timeframe: "30m" });
+      if (Array.isArray(raw) && raw.length >= 21) return { candles: raw, source: "meteora-30m" };
+    } catch { /* fall through */ }
+  }
+
+  return null;
 }
 
 /**
- * Compute TA indicators anchored to a specific historical timestamp.
- * Tries 5m → 15m → 1h until enough candles are available.
- * Used for backfilling lessons.json records.
+ * Compute TA indicators from recent OHLCV.
+ * Source priority: OKX (15m) → GeckoTerminal (15m) → Meteora (30m).
  */
-export async function computeIndicatorsAt(poolAddress, atTime) {
+export async function computeTechnicalIndicators(poolAddress, { tokenMint = null } = {}) {
+  const result = await _fetchOHLCVMultiSource(poolAddress, tokenMint);
+  if (!result) return null;
+  const indicators = computeIndicatorsFromCandles(result.candles);
+  return indicators ? { ...indicators, _source: result.source } : null;
+}
+
+/**
+ * Compute TA indicators anchored to a historical timestamp (for backfill).
+ * Source priority: GeckoTerminal (15m) → Meteora (30m → 1h).
+ */
+export async function computeIndicatorsAt(poolAddress, atTime, { tokenMint = null } = {}) {
   const ts = typeof atTime === "string"
     ? Math.floor(new Date(atTime).getTime() / 1000)
     : Math.floor(atTime);
 
-  const attempts = [
-    { tf: "5m",  lookback: 60 * 300  },  // 60 candles × 5m = 5h
-    { tf: "15m", lookback: 40 * 900  },  // 40 candles × 15m = 10h
-    { tf: "1h",  lookback: 30 * 3600 },  // 30 candles × 1h  = 30h
-  ];
+  // OKX historical
+  if (tokenMint) {
+    try {
+      const { fetchOHLCVCandles } = await import("./tools/okx.js");
+      const candles = await fetchOHLCVCandles(tokenMint, { timeframe: "15m", limit: 100, beforeMs: ts * 1000 });
+      if (candles?.length >= 21) {
+        const result = computeIndicatorsFromCandles(candles);
+        if (result) return { ...result, _timeframe: "15m", _source: "okx" };
+      }
+    } catch { /* fall through */ }
+  }
 
-  for (const { tf, lookback } of attempts) {
-    const candleSec = lookback / (tf === "5m" ? 60 : tf === "15m" ? 40 : 30);
-    const raw = await fetchOHLCV(poolAddress, {
-      startTime: ts - lookback,
-      endTime:   ts + candleSec,
-      timeframe: tf,
-    });
-    const result = computeIndicatorsFromCandles(raw);
-    if (result) return { ...result, _timeframe: tf };
+  // GeckoTerminal historical (15m)
+  const geckoCandles = await fetchOHLCVGeckoTerminal(poolAddress, { aggregate: 15, limit: 100, beforeSec: ts });
+  if (geckoCandles?.length >= 21) {
+    const result = computeIndicatorsFromCandles(geckoCandles);
+    if (result) return { ...result, _timeframe: "15m", _source: "gecko" };
+  }
+
+  // Meteora fallback (30m → 1h)
+  for (const { tf, lookback, candleSec } of [
+    { tf: "30m", lookback: 60 * 1800, candleSec: 1800 },
+    { tf: "1h",  lookback: 30 * 3600, candleSec: 3600 },
+  ]) {
+    try {
+      const raw = await fetchOHLCV(poolAddress, { startTime: ts - lookback, endTime: ts + candleSec, timeframe: tf });
+      const result = computeIndicatorsFromCandles(raw);
+      if (result) return { ...result, _timeframe: tf, _source: "meteora" };
+    } catch { /* fall through */ }
   }
 
   return null;
@@ -543,6 +619,67 @@ function _consecutiveRed(candles) {
     if (candles[i].close < candles[i].open) n++; else break;
   }
   return n;
+}
+
+// Supertrend(10, 3) — returns { direction: "up"|"down", value, distance_pct }
+// direction "up"   = bullish (price above supertrend line, line acts as support)
+// direction "down" = bearish (price below supertrend line, line acts as resistance)
+// distance_pct     = (close - st_line) / close × 100  (positive = bullish gap, negative = bearish gap)
+function _supertrend(highs, lows, closes, period = 10, multiplier = 3.0) {
+  const n = closes.length;
+  if (n < period + 1) return null;
+
+  // True Range array: trs[j] = TR at candle j+1 (indices 0..n-2)
+  const trs = [];
+  for (let i = 1; i < n; i++) {
+    trs.push(Math.max(
+      highs[i] - lows[i],
+      Math.abs(highs[i] - closes[i - 1]),
+      Math.abs(lows[i] - closes[i - 1]),
+    ));
+  }
+
+  // Wilder ATR: seed with simple average, then smooth
+  let atr = trs.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  const atrs = new Array(n).fill(null);
+  atrs[period] = atr;
+  for (let i = period + 1; i < n; i++) {
+    atr = (atr * (period - 1) + trs[i - 1]) / period;
+    atrs[i] = atr;
+  }
+
+  // Supertrend bands + direction
+  const upper = new Array(n).fill(null);
+  const lower = new Array(n).fill(null);
+  const dir   = new Array(n).fill(null); // 1 = bullish, -1 = bearish
+  const st    = new Array(n).fill(null);
+
+  for (let i = period; i < n; i++) {
+    const mid  = (highs[i] + lows[i]) / 2;
+    const bUp  = mid + multiplier * atrs[i];
+    const bLow = mid - multiplier * atrs[i];
+
+    upper[i] = (i === period || bUp < upper[i - 1] || closes[i - 1] > upper[i - 1]) ? bUp : upper[i - 1];
+    lower[i] = (i === period || bLow > lower[i - 1] || closes[i - 1] < lower[i - 1]) ? bLow : lower[i - 1];
+
+    if (i === period) {
+      dir[i] = closes[i] >= mid ? 1 : -1;
+    } else {
+      dir[i] = dir[i - 1] === -1
+        ? (closes[i] > upper[i] ?  1 : -1)
+        : (closes[i] < lower[i] ? -1 :  1);
+    }
+    st[i] = dir[i] === 1 ? lower[i] : upper[i];
+  }
+
+  const last = n - 1;
+  if (st[last] == null) return null;
+  const lastClose = closes[last];
+  return {
+    direction:    dir[last] === 1 ? "up" : "down",
+    value:        round(st[last], 8),
+    distance_pct: round((lastClose - st[last]) / lastClose * 100, 2),
+  };
 }
 
 // ─── Helpers ───────────────────────────────────────────────────
